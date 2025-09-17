@@ -1,0 +1,28 @@
+# Ngrok configuration for MCP Gateway
+version: "2"
+
+# Authentication token (will be set via environment variable)
+authtoken: ${NGROK_AUTHTOKEN}
+
+# Web interface configuration
+web_addr: 0.0.0.0:4040
+
+# Tunnels configuration
+tunnels:
+  mcp-server:
+    proto: http
+    addr: mcp-server:8000
+    schemes: [https]
+    inspect: true
+
+  mcp-registry:
+    proto: http
+    addr: mcp-registry-discovery:8021
+    schemes: [https]
+    inspect: true
+
+# Global tunnel options
+update_channel: stable
+console_ui: true
+log_level: info
+log_format: term

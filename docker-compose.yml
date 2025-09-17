@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  mcp-server:
+    build:
+      context: ./mcp_server_1
+      dockerfile: Dockerfile
+    image: mcp-server-enhanced
+    container_name: mcp-server-enhanced
+    environment:
+      - DOCKER_CONTAINER=true
+    ports:
+      - "8000:8000"
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
+
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: mcp-ngrok
+    restart: unless-stopped
+    command: ["http", "mcp-server:8000"]
+    ports:
+      - "4040:4040"  # ngrok web interface
+    environment:
+      - NGROK_AUTHTOKEN=32gC2d7iMt7zpEQgXLbwnyCnU6q_7ZvTLVs7RELZGG1E7WYDv
+    networks:
+      - mcp-network
+    depends_on:
+      - mcp-server
+      - mcp-registry-discovery
+
+  mcp-registry-discovery:
+    build:
+      context: ./mcp_registry_discovery
+      dockerfile: mcp_toolbox.dockerfile
+    container_name: mcp-registry-discovery
+    environment:
+      - DOCKER_CONTAINER=true
+      - HOST=0.0.0.0
+      - PORT=8021
+    ports:
+      - "8021:8021"
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    # healthcheck:
+    #   test: ["CMD", "curl", "-f", "http://localhost:8021/"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 40s
+    volumes:
+      - ./mcp_registry_discovery/data:/app/data
+
+networks:
+  mcp-network:
+    driver: bridge

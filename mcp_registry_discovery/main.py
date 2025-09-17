@@ -1,0 +1,638 @@
+#!/usr/bin/env python3
+"""
+MCP Toolbox - Fully Compliant with 2025-06-18 Specification
+Centralized gateway implementing pure Streamable HTTP transport
+"""
+import asyncio
+from contextlib import asynccontextmanager
+import logging
+import json
+import uuid
+from typing import Dict, Any, Optional, AsyncGenerator
+from datetime import datetime
+from urllib.parse import urlparse
+import os
+
+from fastapi import FastAPI, Request, HTTPException, Header
+from fastapi.responses import JSONResponse, StreamingResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import uvicorn
+
+from services import discovery_service, connection_manager, ToolNotFoundException
+from mcp_storage import mcp_storage_manager
+# No hardcoded server imports - fully user-driven
+
+# Configure logging per MCP 2025-06-18 specification
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Protocol constants as per 2025-06-18 specification
+PROTOCOL_VERSION = "2025-06-18"
+SERVER_INFO = {
+    "name": "mcp-toolbox-gateway",
+    "version": "1.0.0"
+}
+
+
+class MCPToolboxGateway:
+    """
+    MCP Toolbox Gateway implementation fully compliant with 2025-06-18 Streamable HTTP transport.
+    Acts as a centralized gateway with tool discovery, connection management, and caching.
+    """
+
+    def __init__(self):
+        self.initialized = False
+        self.client_info = {}
+        self.server_start_time = datetime.now()
+        self.sessions: Dict[str, Dict] = {}
+        logger.info(f"MCP Toolbox Gateway initialized with protocol version {PROTOCOL_VERSION}")
+
+    def validate_origin_header(self, origin: Optional[str]) -> bool:
+        """
+        Validate Origin header to prevent DNS rebinding attacks.
+        Required by 2025-06-18 specification.
+        """
+        if not origin:
+            return True  # Allow requests without Origin header for local development
+
+        try:
+            parsed = urlparse(origin)
+            # Allow localhost and 127.0.0.1 origins
+            allowed_hosts = ["localhost", "127.0.0.1"]
+            return parsed.hostname in allowed_hosts
+        except Exception:
+            logger.warning(f"Invalid Origin header: {origin}")
+            return False
+
+    def validate_accept_header(self, accept: Optional[str], method: str) -> bool:
+        """
+        Validate Accept header according to 2025-06-18 specification.
+        """
+        if not accept:
+            return False
+
+        if method == "POST":
+            # POST requests must accept both application/json and text/event-stream
+            return "application/json" in accept and "text/event-stream" in accept
+        elif method == "GET":
+            # GET requests must accept text/event-stream
+            return "text/event-stream" in accept
+
+        return False
+
+    def validate_protocol_version(self, version: Optional[str]) -> str:
+        """
+        Validate and normalize protocol version according to specification.
+        """
+        if not version:
+            # Default to latest version for backwards compatibility
+            return PROTOCOL_VERSION
+
+        supported_versions = ["2025-06-18", "2025-03-26"]
+        if version not in supported_versions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported protocol version: {version}"
+            )
+
+        return version
+
+    def generate_session_id(self) -> str:
+        """
+        Generate cryptographically secure session ID per specification.
+        Must contain only visible ASCII characters (0x21 to 0x7E).
+        """
+        session_id = str(uuid.uuid4())
+
+        # Validate ASCII character range per specification
+        if not all(0x21 <= ord(c) <= 0x7E for c in session_id):
+            # Use hex format to ensure compliance
+            session_id = uuid.uuid4().hex
+
+        return session_id
+
+    def validate_session(self, session_id: str) -> bool:
+        """Validate session ID exists and is active."""
+        return session_id in self.sessions
+
+    def terminate_session(self, session_id: str) -> bool:
+        """Terminate a session per specification."""
+        if session_id in self.sessions:
+            del self.sessions[session_id]
+            logger.info(f"Session terminated: {session_id}")
+            return True
+        return False
+
+    def create_error_response(self, request_id: Optional[str], code: int, message: str) -> Dict[str, Any]:
+        """Create JSON-RPC error response per specification."""
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "error": {"code": code, "message": message}
+        }
+
+
+# Create gateway instance
+mcp_gateway = MCPToolboxGateway()
+
+
+# --- Application Lifecycle ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handles application startup and shutdown events."""
+    logger.info("MCP Toolbox starting up...")
+    # Initialize storage manager
+    await mcp_storage_manager.initialize()
+    discovery_service.storage_manager = mcp_storage_manager
+    # Initialize and warm up the discovery service cache
+    await discovery_service.refresh_tool_index()
+    yield
+    logger.info("MCP Toolbox shutting down...")
+    # Cleanly close the connection manager's session
+    await connection_manager.close_session()
+
+
+# Create FastAPI app with proper configuration
+app = FastAPI(
+    title="MCP Toolbox Gateway",
+    description="Centralized gateway implementing MCP 2025-06-18 Streamable HTTP transport",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Configure CORS with security considerations per specification
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# Serve main portal HTML file
+@app.get("/", response_class=FileResponse)
+async def root():
+    """Serve the MCP portal HTML file."""
+    return FileResponse("test_mcp.html")
+
+
+
+
+
+# Main MCP endpoint - GET method for client-initiated SSE streams
+@app.get("/mcp")
+async def mcp_get_endpoint(
+        request: Request,
+        accept: str = Header(None),
+        last_event_id: Optional[str] = Header(None, alias="Last-Event-ID"),
+        session_id: Optional[str] = Header(None, alias="Mcp-Session-Id"),
+        protocol_version: Optional[str] = Header(None, alias="MCP-Protocol-Version")
+):
+    """
+    GET endpoint for client-initiated SSE streams per 2025-06-18 specification.
+    Provides server-to-client communication for gateway notifications.
+    """
+    try:
+        # Validate protocol version
+        validated_version = mcp_gateway.validate_protocol_version(protocol_version)
+
+        # Validate Origin header (required by specification)
+        origin = request.headers.get("origin")
+        if not mcp_gateway.validate_origin_header(origin):
+            raise HTTPException(status_code=403, detail="Origin not allowed")
+
+        # Validate Accept header for GET requests
+        if not mcp_gateway.validate_accept_header(accept, "GET"):
+            raise HTTPException(status_code=405, detail="Method Not Allowed")
+
+        # Validate session if provided
+        if session_id and not mcp_gateway.validate_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        async def gateway_notification_stream():
+            """
+            Generate SSE events for gateway notifications per specification.
+            """
+            try:
+                # Handle resumability if Last-Event-ID provided
+                if last_event_id:
+                    logger.info(f"Resuming stream from event ID: {last_event_id}")
+
+                # Send gateway status notifications
+                while True:
+                    # Discovery service refresh notification
+                    refresh_id = str(uuid.uuid4())
+                    refresh_data = {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/tools_refresh",
+                        "params": {
+                            "timestamp": datetime.now().isoformat(),
+                            "available_tools": len(discovery_service.tool_to_server_map),
+                            "registered_servers": len(await mcp_storage_manager.get_all_servers()) if mcp_storage_manager else 0
+                        }
+                    }
+
+                    yield f"id: {refresh_id}\n"
+                    yield f"data: {json.dumps(refresh_data)}\n\n"
+
+                    await asyncio.sleep(60)  # Status update every 60 seconds
+
+            except Exception as e:
+                logger.error(f"Error in gateway notification SSE stream: {e}")
+                return
+
+        return StreamingResponse(
+            gateway_notification_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in GET endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Main MCP endpoint - POST method for client-to-server communication
+@app.post("/mcp")
+async def mcp_post_endpoint(
+        request_data: Dict[str, Any],
+        request: Request,
+        accept: str = Header(None),
+        session_id: Optional[str] = Header(None, alias="Mcp-Session-Id"),
+        protocol_version: Optional[str] = Header(None, alias="MCP-Protocol-Version")
+):
+    """
+    POST endpoint implementing MCP 2025-06-18 Streamable HTTP transport.
+    Acts as a gateway proxying requests to appropriate backend MCP servers.
+    """
+    try:
+        # Validate protocol version
+        validated_version = mcp_gateway.validate_protocol_version(protocol_version)
+
+        # Validate Origin header (required by specification)
+        origin = request.headers.get("origin")
+        if not mcp_gateway.validate_origin_header(origin):
+            raise HTTPException(status_code=403, detail="Origin not allowed")
+
+        # Validate Accept header for POST requests
+        if not mcp_gateway.validate_accept_header(accept, "POST"):
+            raise HTTPException(
+                status_code=400,
+                detail="Accept header must include both application/json and text/event-stream"
+            )
+
+        method = request_data.get("method")
+        params = request_data.get("params", {})
+        request_id = request_data.get("id")
+
+        if not method:
+            raise HTTPException(status_code=400, detail="Invalid JSON-RPC request format.")
+
+        # Handle initialization per specification
+        if method == "initialize":
+            mcp_gateway.client_info = params
+            mcp_gateway.initialized = True
+            client_name = params.get('clientInfo', {}).get('name', 'Unknown Client')
+
+            # Generate session ID if not provided
+            if not session_id:
+                session_id = mcp_gateway.generate_session_id()
+
+            # Store session info
+            mcp_gateway.sessions[session_id] = {
+                'client_info': params,
+                'created_at': datetime.now(),
+                'initialized': True,
+                'protocol_version': validated_version
+            }
+
+            logger.info(f"MCP Toolbox Gateway initialized by {client_name} with session {session_id}")
+
+            response = {
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "result": {
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "capabilities": {
+                        "tools": {"listChanged": True},
+                        "streamableHttp": True
+                    },
+                    "serverInfo": SERVER_INFO
+                }
+            }
+
+            headers = {"Mcp-Session-Id": session_id}
+            return JSONResponse(content=response, headers=headers)
+
+        elif method == "notifications/initialized":
+            logger.info("Client initialization completed.")
+            return JSONResponse(content={}, status_code=202)  # 202 Accepted per spec
+
+        # Validate session for other methods
+        if session_id and not mcp_gateway.validate_session(session_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Handle tools/list request
+        if method == "tools/list":
+            logger.info("tools/list: Fetching from discovery service.")
+            all_tools = await discovery_service.get_all_tools()
+
+            return JSONResponse(content={
+                "jsonrpc": "2.0", "id": request_id, "result": {"tools": all_tools}
+            })
+
+        # Handle tools/call request with streaming
+        elif method == "tools/call":
+            tool_name = params.get("name")
+            if not tool_name:
+                if request_id:
+                    error_response = mcp_gateway.create_error_response(request_id, -32602, "Tool name is required")
+                    return JSONResponse(content=error_response, status_code=400)
+                else:
+                    raise HTTPException(status_code=400, detail="Missing 'name' in params for tools/call.")
+
+            # Find the tool's server location
+            try:
+                server_url = await discovery_service.get_tool_location(tool_name)
+                logger.info(f"tools/call ({tool_name}): Routing to server: {server_url}")
+            except ToolNotFoundException:
+                logger.error(f"Tool '{tool_name}' not found in any registered MCP server.")
+                if request_id:
+                    error_response = mcp_gateway.create_error_response(request_id, -32601, f"Tool not found: {tool_name}")
+                    return JSONResponse(content=error_response, status_code=404)
+                else:
+                    raise HTTPException(status_code=404, detail=f"Tool not found: {tool_name}")
+
+            # Forward the request and stream the response back
+            async def gateway_streaming_wrapper():
+                """Wrap the backend stream with gateway-specific events per specification."""
+                try:
+                    # Send gateway progress notification
+                    gateway_progress = {
+                        "jsonrpc": "2.0",
+                        "method": "notifications/gateway_progress",
+                        "params": {
+                            "message": f"Forwarding request to {server_url}",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    }
+                    event_id = str(uuid.uuid4())
+                    yield f"id: {event_id}\n"
+                    yield f"data: {json.dumps(gateway_progress)}\n\n"
+
+                    # Stream from backend server
+                    backend_stream = connection_manager.forward_request_streaming(server_url, request_data)
+                    async for chunk in backend_stream:
+                        yield chunk
+
+                except Exception as e:
+                    logger.error(f"Error in gateway streaming wrapper: {e}")
+                    error_event_id = str(uuid.uuid4())
+                    error_response = mcp_gateway.create_error_response(request_id, -32000, f"Gateway error: {str(e)}")
+                    yield f"id: {error_event_id}\n"
+                    yield f"data: {json.dumps(error_response)}\n\n"
+
+            return StreamingResponse(
+                gateway_streaming_wrapper(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                }
+            )
+
+        # MCP 2025-06-18 specification only supports standard methods
+        # Server management is handled via separate management API
+
+        else:
+            logger.warning(f"Received unsupported method: {method}")
+            if request_id:
+                error_response = mcp_gateway.create_error_response(request_id, -32601, f"Method not found: {method}")
+                return JSONResponse(content=error_response, status_code=404)
+            else:
+                raise HTTPException(status_code=404, detail=f"Method not found: {method}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Critical error in POST endpoint: {e}", exc_info=True)
+        error_resp = mcp_gateway.create_error_response(
+            request_data.get("id"),
+            -32000,
+            "Internal Server Error"
+        )
+        return JSONResponse(content=error_resp, status_code=500)
+
+
+# DELETE endpoint for session termination
+@app.delete("/mcp")
+async def mcp_delete_endpoint(
+        session_id: Optional[str] = Header(None, alias="Mcp-Session-Id"),
+        protocol_version: Optional[str] = Header(None, alias="MCP-Protocol-Version")
+):
+    """
+    DELETE endpoint for explicit session termination per 2025-06-18 specification.
+    """
+    try:
+        # Validate protocol version
+        mcp_gateway.validate_protocol_version(protocol_version)
+
+        if not session_id:
+            raise HTTPException(status_code=400, detail="Mcp-Session-Id header required")
+
+        if mcp_gateway.terminate_session(session_id):
+            return JSONResponse(content={"message": "Session terminated"}, status_code=200)
+        else:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in DELETE endpoint: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# Management API endpoint - separate from MCP compliance
+@app.post("/manage")
+async def management_endpoint(request_data: Dict[str, Any]):
+    """
+    Management API for server operations - separate from MCP protocol.
+    This handles UI management functions while keeping /mcp purely MCP compliant.
+    """
+    try:
+        method = request_data.get("method")
+        params = request_data.get("params", {})
+        request_id = request_data.get("id")
+
+        if not method:
+            raise HTTPException(status_code=400, detail="Invalid request format.")
+
+        # Handle server management methods
+        if method == "server.add":
+            server_url = params.get("server_url")
+            description = params.get("description", "")
+            
+            if not server_url:
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32602, "message": "server_url is required"}
+                }, status_code=400)
+            
+            try:
+                server_info = await mcp_storage_manager.register_server_from_url(server_url, description)
+                if server_info:
+                    # Refresh the discovery service
+                    await discovery_service.refresh_tool_index()
+                    return JSONResponse(content={
+                        "jsonrpc": "2.0", 
+                        "id": request_id, 
+                        "result": {"success": True, "server_id": server_info.server_id}
+                    })
+                else:
+                    return JSONResponse(content={
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {"code": -32000, "message": "Failed to register server"}
+                    }, status_code=500)
+            except Exception as e:
+                logger.error(f"Error adding server: {e}")
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32000, "message": f"Error adding server: {str(e)}"}
+                }, status_code=500)
+
+        elif method == "server.remove":
+            server_id = params.get("server_id")
+            
+            if not server_id:
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32602, "message": "server_id is required"}
+                }, status_code=400)
+            
+            try:
+                success = await mcp_storage_manager.remove_server(server_id)
+                if success:
+                    # Refresh the discovery service
+                    await discovery_service.refresh_tool_index()
+                    return JSONResponse(content={
+                        "jsonrpc": "2.0", 
+                        "id": request_id, 
+                        "result": {"success": True}
+                    })
+                else:
+                    return JSONResponse(content={
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "error": {"code": -32601, "message": "Server not found"}
+                    }, status_code=404)
+            except Exception as e:
+                logger.error(f"Error removing server: {e}")
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32000, "message": f"Error removing server: {str(e)}"}
+                }, status_code=500)
+
+        elif method == "server.test":
+            server_id = params.get("server_id")
+            
+            if not server_id:
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32602, "message": "server_id is required"}
+                }, status_code=400)
+            
+            try:
+                test_result = await mcp_storage_manager.test_server_connection(server_id)
+                return JSONResponse(content={
+                    "jsonrpc": "2.0", 
+                    "id": request_id, 
+                    "result": test_result
+                })
+            except Exception as e:
+                logger.error(f"Error testing server: {e}")
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32000, "message": f"Error testing server: {str(e)}"}
+                }, status_code=500)
+
+        elif method == "server.list":
+            try:
+                servers = await mcp_storage_manager.get_all_servers()
+                server_cards = {}
+                
+                for server_id, server_info in servers.items():
+                    server_cards[server_id] = {
+                        "name": server_info.name,
+                        "url": server_info.url,
+                        "description": server_info.description,
+                        "capabilities": server_info.capabilities,
+                        "metadata": server_info.metadata,
+                        "updated_at": server_info.updated_at.isoformat()
+                    }
+                
+                return JSONResponse(content={
+                    "jsonrpc": "2.0", 
+                    "id": request_id, 
+                    "result": {"server_cards": server_cards}
+                })
+            except Exception as e:
+                logger.error(f"Error listing servers: {e}")
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {"code": -32000, "message": f"Error listing servers: {str(e)}"}
+                }, status_code=500)
+
+        else:
+            return JSONResponse(content={
+                "jsonrpc": "2.0",
+                "id": request_id,
+                "error": {"code": -32601, "message": f"Method not found: {method}"}
+            }, status_code=404)
+
+    except Exception as e:
+        logger.error(f"Error in management endpoint: {e}", exc_info=True)
+        return JSONResponse(content={
+            "jsonrpc": "2.0",
+            "id": request_data.get("id"),
+            "error": {"code": -32000, "message": "Internal server error"}
+        }, status_code=500)
+
+
+if __name__ == "__main__":
+    # Security: bind to localhost only as per specification recommendation
+    host = os.getenv("HOST", "127.0.0.1")  # Changed from 0.0.0.0 for security
+    port = int(os.getenv("PORT", "8021"))
+
+    logger.info(f"Starting MCP Toolbox Gateway (2025-06-18 compliant) on {host}:{port}...")
+    logger.info(f"Protocol Version: {PROTOCOL_VERSION}")
+    logger.info(f"Server Info: {SERVER_INFO}")
+    logger.info("MCP Servers: Fully user-driven (no hardcoded servers)")
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
