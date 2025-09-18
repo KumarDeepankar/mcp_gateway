@@ -15,6 +15,12 @@ tunnels:
     schemes: [https]
     inspect: true
 
+  mcp-opensearch:
+    proto: http
+    addr: mcp-opensearch:8001
+    schemes: [https]
+    inspect: true
+
   mcp-registry:
     proto: http
     addr: mcp-registry-discovery:8021
