@@ -25,11 +25,13 @@ services:
     image: ngrok/ngrok:latest
     container_name: mcp-ngrok
     restart: unless-stopped
-    command: ["http", "mcp-server:8000"]
+    command: ["start", "--all", "--config", "/etc/ngrok.yml"]
     ports:
       - "4040:4040"  # ngrok web interface
     environment:
       - NGROK_AUTHTOKEN=32gC2d7iMt7zpEQgXLbwnyCnU6q_7ZvTLVs7RELZGG1E7WYDv
+    volumes:
+      - ./ngrok/ngrok.yml:/etc/ngrok.yml:ro
     networks:
       - mcp-network
     depends_on:

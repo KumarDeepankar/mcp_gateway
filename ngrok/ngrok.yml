@@ -2,7 +2,7 @@
 version: "2"
 
 # Authentication token (will be set via environment variable)
-authtoken: ${NGROK_AUTHTOKEN}
+authtoken: 32gC2d7iMt7zpEQgXLbwnyCnU6q_7ZvTLVs7RELZGG1E7WYDv
 
 # Web interface configuration
 web_addr: 0.0.0.0:4040
