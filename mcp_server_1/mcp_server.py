@@ -14,7 +14,7 @@ import os
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request, HTTPException, Header, Response
-from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -485,11 +485,19 @@ app.add_middleware(
 )
 
 
-# Serve test HTML file
-@app.get("/", response_class=FileResponse)
+# Serve basic server information
+@app.get("/")
 async def root():
-    """Serve the test HTML file."""
-    return FileResponse("test.html")
+    """Serve basic server information."""
+    return {
+        "name": "MCP Compliant Server",
+        "version": "1.0.0",
+        "protocol": PROTOCOL_VERSION,
+        "description": "Fully compliant with MCP 2025-06-18 specification",
+        "endpoints": {
+            "mcp": "/mcp (GET/POST/DELETE)"
+        }
+    }
 
 
 

@@ -180,23 +180,71 @@ class DiscoveryService:
     async def _fetch_tools_from_server(self, server_url: str) -> tuple[str, Optional[List[Dict]]]:
         """
         Fetches the tool list from a single MCP server.
-        Enhanced with MCP 2025-06-18 specification compliance.
+        Enhanced with MCP 2025-06-18 specification compliance including proper session initialization.
         """
-        payload = {"jsonrpc": "2.0", "method": "tools/list", "id": "discovery-list"}
         session = await self.connection_manager._get_session()
         mcp_endpoint = f"{server_url}/mcp"
+
         # Headers per 2025-06-18 specification
-        headers = {
+        base_headers = {
             'Accept': 'application/json, text/event-stream',
             'Content-Type': 'application/json',
             'MCP-Protocol-Version': '2025-06-18'
         }
 
         try:
-            async with session.post(mcp_endpoint, json=payload, headers=headers, timeout=10) as response:
+            # Step 1: Initialize the MCP session
+            init_payload = {
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "id": "discovery-init",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "clientInfo": {
+                        "name": "mcp-toolbox-gateway",
+                        "version": "1.0.0"
+                    }
+                }
+            }
+
+            session_id = None
+            async with session.post(mcp_endpoint, json=init_payload, headers=base_headers, timeout=10) as response:
+                if response.status == 200:
+                    init_data = await response.json()
+                    session_id = response.headers.get("Mcp-Session-Id")
+                    if not session_id:
+                        logger.warning(f"No session ID returned from {server_url} during initialization")
+                        return server_url, None
+                    logger.debug(f"Initialized session {session_id} with {server_url}")
+                else:
+                    logger.warning(f"Failed to initialize session with {server_url}. Status: {response.status}")
+                    return server_url, None
+
+            # Step 2: Send initialized notification
+            headers_with_session = base_headers.copy()
+            headers_with_session['Mcp-Session-Id'] = session_id
+
+            initialized_payload = {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized"
+            }
+
+            async with session.post(mcp_endpoint, json=initialized_payload, headers=headers_with_session, timeout=5) as response:
+                if response.status != 202:
+                    logger.warning(f"Unexpected status for initialized notification from {server_url}: {response.status}")
+                    # Continue anyway as some servers might handle this differently
+
+            # Step 3: Request tools list with proper session
+            tools_payload = {
+                "jsonrpc": "2.0",
+                "method": "tools/list",
+                "id": "discovery-list"
+            }
+
+            async with session.post(mcp_endpoint, json=tools_payload, headers=headers_with_session, timeout=10) as response:
                 if response.status == 200:
                     content_type = response.headers.get('content-type', '')
-                    
+
                     # Handle both JSON and SSE responses
                     if 'application/json' in content_type:
                         data = await response.json()
@@ -217,7 +265,7 @@ class DiscoveryService:
                             except (UnicodeDecodeError, json.JSONDecodeError) as e:
                                 logger.debug(f"Failed to parse SSE line from {server_url}: {e}")
                                 continue
-                        
+
                         logger.info(f"Successfully fetched {len(tools)} tools from {server_url} (SSE)")
                         return server_url, tools
                     else:
@@ -228,6 +276,17 @@ class DiscoveryService:
                     error_text = await response.text()
                     logger.debug(f"Error response from {server_url}: {error_text}")
                     return server_url, None
+
+            # Step 4: Clean up session (optional, but good practice)
+            if session_id:
+                try:
+                    delete_headers = base_headers.copy()
+                    delete_headers['Mcp-Session-Id'] = session_id
+                    async with session.delete(mcp_endpoint, headers=delete_headers, timeout=5) as response:
+                        logger.debug(f"Session cleanup for {server_url}: {response.status}")
+                except Exception as e:
+                    logger.debug(f"Session cleanup failed for {server_url}: {e}")
+
         except asyncio.TimeoutError:
             logger.warning(f"Timeout while fetching tools from {server_url}")
             return server_url, None
