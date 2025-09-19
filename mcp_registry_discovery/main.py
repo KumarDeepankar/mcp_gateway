@@ -232,9 +232,19 @@ class MCPToolboxGateway:
 
         try:
             parsed = urlparse(origin)
-            # Allow localhost and 127.0.0.1 origins
-            allowed_hosts = ["localhost", "127.0.0.1"]
-            return parsed.hostname in allowed_hosts
+            # Allow localhost and 127.0.0.1
+            if parsed.hostname in ["localhost", "127.0.0.1"]:
+                return True
+
+            # Allow all ngrok domains for development
+            if parsed.hostname and (
+                parsed.hostname.endswith('.ngrok-free.app') or
+                parsed.hostname.endswith('.ngrok.io') or
+                parsed.hostname.endswith('.ngrok.app')
+            ):
+                return True
+
+            return False
         except Exception:
             logger.warning(f"Invalid Origin header: {origin}")
             return False
@@ -350,7 +360,15 @@ app.add_middleware(
         "http://localhost:8000",
         "http://127.0.0.1:8000",
         "http://localhost:3000",
-        "http://127.0.0.1:3000"
+        "http://127.0.0.1:3000",
+        "http://localhost:8021",
+        "http://127.0.0.1:8021",
+        # Allow specific ngrok domains for HTTPS access
+        "https://af6cb461468e.ngrok-free.app",
+        "https://85d0a6195559.ngrok-free.app",
+        "https://1a644fddba13.ngrok-free.app",
+        # Allow all origins for development (can be restricted in production)
+        "*"
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],

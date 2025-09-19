@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug URL Configuration</title>
+</head>
+<body>
+    <h1>Debug URL Configuration</h1>
+    <div id="debug-info"></div>
+
+    <script>
+        // Copy the same logic from mcp-portal.js
+        const MANAGE_URL = (() => {
+            const pathname = window.location.pathname;
+            const hostname = window.location.hostname;
+
+            console.log('MCP Portal URL Detection:', { pathname, hostname });
+
+            // Detect if we're running in Kubernetes by checking the URL path prefix
+            if (pathname.startsWith('/toolbox/')) {
+                console.log('Detected Kubernetes deployment with /toolbox/ prefix');
+                return '/toolbox/manage';
+            }
+
+            // Local development (localhost with any port) or direct access
+            if (hostname === 'localhost' || hostname === '127.0.0.1' || pathname === '/') {
+                console.log('Detected local development environment');
+                return '/manage';
+            }
+
+            // Fallback - try relative path
+            console.log('Using fallback relative path');
+            return 'manage';
+        })();
+
+        const MCP_URL = (() => {
+            const pathname = window.location.pathname;
+            const hostname = window.location.hostname;
+
+            console.log('MCP URL Detection:', { pathname, hostname });
+
+            if (pathname.startsWith('/toolbox/')) {
+                console.log('Detected Kubernetes deployment with /toolbox/ prefix for MCP');
+                return '/toolbox/mcp';
+            }
+
+            if (hostname === 'localhost' || hostname === '127.0.0.1' || pathname === '/') {
+                console.log('Detected local development environment for MCP');
+                return '/mcp';
+            }
+
+            console.log('Using fallback relative path for MCP');
+            return 'mcp';
+        })();
+
+        // Display debug info
+        document.getElementById('debug-info').innerHTML = `
+            <p><strong>Current URL:</strong> ${window.location.href}</p>
+            <p><strong>Hostname:</strong> ${window.location.hostname}</p>
+            <p><strong>Pathname:</strong> ${window.location.pathname}</p>
+            <p><strong>MANAGE_URL:</strong> ${MANAGE_URL}</p>
+            <p><strong>MCP_URL:</strong> ${MCP_URL}</p>
+            <p><strong>Full MANAGE URL:</strong> ${window.location.origin}${MANAGE_URL}</p>
+            <p><strong>Full MCP URL:</strong> ${window.location.origin}${MCP_URL}</p>
+        `;
+
+        // Test API call
+        async function testAPI() {
+            try {
+                console.log('Testing MANAGE API...');
+                const response = await fetch(MANAGE_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: "2.0",
+                        method: "server.list",
+                        id: "debug-test"
+                    })
+                });
+
+                const data = await response.json();
+                console.log('MANAGE API Response:', data);
+
+                document.getElementById('debug-info').innerHTML += `<p><strong>MANAGE API Test:</strong> SUCCESS - ${JSON.stringify(data).substring(0, 100)}...</p>`;
+            } catch (error) {
+                console.error('MANAGE API Error:', error);
+                document.getElementById('debug-info').innerHTML += `<p><strong>MANAGE API Test:</strong> ERROR - ${error.message}</p>`;
+            }
+        }
+
+        // Run test after page load
+        setTimeout(testAPI, 1000);
+    </script>
+</body>
+</html>

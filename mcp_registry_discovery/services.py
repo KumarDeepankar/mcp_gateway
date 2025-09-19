@@ -5,6 +5,7 @@ Provides connection management and discovery services with enhanced error handli
 """
 import asyncio
 import aiohttp
+import ssl
 import logging
 import json
 import uuid
@@ -30,8 +31,16 @@ class ConnectionManager:
     async def _get_session(self) -> aiohttp.ClientSession:
         async with self._lock:
             if self._session is None or self._session.closed:
-                self._session = aiohttp.ClientSession()
-                logger.info("New aiohttp.ClientSession created.")
+                # Create SSL context that allows self-signed certificates for development
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                # Create connector with SSL configuration
+                connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+                self._session = aiohttp.ClientSession(connector=connector)
+                logger.info("New aiohttp.ClientSession created with SSL verification disabled.")
         return self._session
 
     async def forward_request_streaming(self, server_url: str, payload: Dict[str, Any]) -> AsyncGenerator[str, None]:

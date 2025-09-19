@@ -365,16 +365,71 @@ async function deleteServer(serverId) {
 
 // Tool Discovery
 async function discoverTools() {
+    console.log('🔧 discoverTools() called');
+    console.log('🔧 MANAGE_URL:', MANAGE_URL);
+    console.log('🔧 MCP_URL:', MCP_URL);
+    console.log('🔧 Current location:', window.location.href);
+
     const loadingElement = document.getElementById('toolsTableBody');
     loadingElement.innerHTML = '<div class="loading">Discovering tools...</div>';
 
     try {
-        const response = await fetch(MCP_URL, {
+        // Step 1: Initialize MCP session
+        console.log('🔧 Step 1: Initializing MCP session at:', MCP_URL);
+        const initResponse = await fetch(MCP_URL, {
             method: 'POST',
-            headers: { 
+            headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json, text/event-stream',
                 'MCP-Protocol-Version': '2025-06-18'
+            },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "initialize",
+                params: {
+                    protocolVersion: "2025-06-18",
+                    clientInfo: {
+                        name: "mcp-portal-ui",
+                        version: "1.0.0"
+                    }
+                },
+                id: `init-${Date.now()}`
+            })
+        });
+
+        console.log('🔧 Init response status:', initResponse.status);
+        const initData = await initResponse.json();
+        console.log('🔧 Init response data:', initData);
+        const sessionId = initResponse.headers.get('Mcp-Session-Id');
+        console.log('🔧 Session ID:', sessionId);
+
+        if (!initData.result || !sessionId) {
+            throw new Error('Failed to initialize MCP session');
+        }
+
+        // Step 2: Send initialized notification
+        await fetch(MCP_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                'MCP-Protocol-Version': '2025-06-18',
+                'Mcp-Session-Id': sessionId
+            },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "notifications/initialized"
+            })
+        });
+
+        // Step 3: Get tools list with session
+        const response = await fetch(MCP_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                'MCP-Protocol-Version': '2025-06-18',
+                'Mcp-Session-Id': sessionId
             },
             body: JSON.stringify({
                 jsonrpc: "2.0",
@@ -587,12 +642,58 @@ async function executeTool() {
     }
 
     try {
-        const response = await fetch(MCP_URL, {
+        // Step 1: Initialize MCP session for tool execution
+        const initResponse = await fetch(MCP_URL, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json, text/event-stream',
                 'MCP-Protocol-Version': '2025-06-18'
+            },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "initialize",
+                params: {
+                    protocolVersion: "2025-06-18",
+                    clientInfo: {
+                        name: "mcp-portal-ui",
+                        version: "1.0.0"
+                    }
+                },
+                id: `init-exec-${Date.now()}`
+            })
+        });
+
+        const initData = await initResponse.json();
+        const sessionId = initResponse.headers.get('Mcp-Session-Id');
+
+        if (!initData.result || !sessionId) {
+            throw new Error('Failed to initialize MCP session for tool execution');
+        }
+
+        // Step 2: Send initialized notification
+        await fetch(MCP_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                'MCP-Protocol-Version': '2025-06-18',
+                'Mcp-Session-Id': sessionId
+            },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "notifications/initialized"
+            })
+        });
+
+        // Step 3: Execute tool with session
+        const response = await fetch(MCP_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                'MCP-Protocol-Version': '2025-06-18',
+                'Mcp-Session-Id': sessionId
             },
             body: JSON.stringify({
                 jsonrpc: "2.0",
@@ -676,13 +777,58 @@ async function loadCapabilities() {
     container.innerHTML = '<div class="loading">Loading tool capabilities...</div>';
 
     try {
-        // Get tools using existing endpoint
-        const toolsResponse = await fetch(MCP_URL, {
+        // Step 1: Initialize MCP session
+        const initResponse = await fetch(MCP_URL, {
             method: 'POST',
-            headers: { 
+            headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json, text/event-stream',
                 'MCP-Protocol-Version': '2025-06-18'
+            },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "initialize",
+                params: {
+                    protocolVersion: "2025-06-18",
+                    clientInfo: {
+                        name: "mcp-portal-ui",
+                        version: "1.0.0"
+                    }
+                },
+                id: `init-${Date.now()}`
+            })
+        });
+
+        const initData = await initResponse.json();
+        const sessionId = initResponse.headers.get('Mcp-Session-Id');
+
+        if (!initData.result || !sessionId) {
+            throw new Error('Failed to initialize MCP session');
+        }
+
+        // Step 2: Send initialized notification
+        await fetch(MCP_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                'MCP-Protocol-Version': '2025-06-18',
+                'Mcp-Session-Id': sessionId
+            },
+            body: JSON.stringify({
+                jsonrpc: "2.0",
+                method: "notifications/initialized"
+            })
+        });
+
+        // Step 3: Get tools using existing endpoint
+        const toolsResponse = await fetch(MCP_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json, text/event-stream',
+                'MCP-Protocol-Version': '2025-06-18',
+                'Mcp-Session-Id': sessionId
             },
             body: JSON.stringify({
                 jsonrpc: "2.0",

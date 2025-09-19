@@ -2,6 +2,7 @@
 import pickle
 import os
 import asyncio
+import ssl
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
 import aiofiles
@@ -119,7 +120,15 @@ class MCPStorageManager:
     async def register_server_from_url(self, server_url: str, description: str = "") -> Optional[MCPServerInfo]:
         """Discover and register an MCP server from its URL."""
         try:
-            async with aiohttp.ClientSession() as session:
+            # Create SSL context that allows self-signed certificates for development
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+            # Create connector with SSL configuration
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+            async with aiohttp.ClientSession(connector=connector) as session:
                 # Try to discover server capabilities
                 headers = {
                     'Accept': 'application/json, text/event-stream',
@@ -240,12 +249,20 @@ class MCPStorageManager:
         server_data = self.servers.get(server_id)
         if not server_data:
             return {"status": "error", "message": "Server not found"}
-        
+
         endpoint = server_data["url"]
         start_time = datetime.now()
-        
+
         try:
-            async with aiohttp.ClientSession() as session:
+            # Create SSL context that allows self-signed certificates for development
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+
+            # Create connector with SSL configuration
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+            async with aiohttp.ClientSession(connector=connector) as session:
                 # Test MCP initialization
                 headers = {
                     'Accept': 'application/json, text/event-stream',
