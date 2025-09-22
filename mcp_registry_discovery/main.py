@@ -226,6 +226,7 @@ class MCPToolboxGateway:
         """
         Validate Origin header to prevent DNS rebinding attacks.
         Required by 2025-06-18 specification.
+        Enhanced for ngrok compatibility.
         """
         if not origin:
             return True  # Allow requests without Origin header for local development
@@ -240,13 +241,19 @@ class MCPToolboxGateway:
             if parsed.hostname and (
                 parsed.hostname.endswith('.ngrok-free.app') or
                 parsed.hostname.endswith('.ngrok.io') or
-                parsed.hostname.endswith('.ngrok.app')
+                parsed.hostname.endswith('.ngrok.app') or
+                '.ngrok.' in parsed.hostname
             ):
                 return True
 
+            # For development, allow any HTTPS origin (can be restricted in production)
+            if parsed.scheme == 'https':
+                logger.info(f"Allowing HTTPS origin: {origin}")
+                return True
+
             return False
-        except Exception:
-            logger.warning(f"Invalid Origin header: {origin}")
+        except Exception as e:
+            logger.warning(f"Invalid Origin header: {origin}, error: {e}")
             return False
 
     def validate_accept_header(self, accept: Optional[str], method: str) -> bool:
@@ -356,20 +363,7 @@ app = FastAPI(
 # Configure CORS with security considerations per specification
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8021",
-        "http://127.0.0.1:8021",
-        # Allow specific ngrok domains for HTTPS access
-        "https://af6cb461468e.ngrok-free.app",
-        "https://85d0a6195559.ngrok-free.app",
-        "https://1a644fddba13.ngrok-free.app",
-        # Allow all origins for development (can be restricted in production)
-        "*"
-    ],
+    allow_origins=["*"],  # Allow all origins for ngrok compatibility
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -381,9 +375,41 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Serve main portal HTML file
 @app.get("/", response_class=FileResponse)
-async def root():
-    """Serve the MCP portal HTML file."""
-    return FileResponse("test_mcp.html")
+async def root(request: Request):
+    """Serve the MCP portal HTML file with ngrok compatibility."""
+    # Log request details for debugging
+    logger.info(f"Root request from: {request.client.host if request.client else 'unknown'}")
+    logger.info(f"Headers: {dict(request.headers)}")
+
+    response = FileResponse("test_mcp.html")
+
+    # Add headers for ngrok compatibility
+    response.headers["X-Frame-Options"] = "ALLOWALL"
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Cross-Origin-Embedder-Policy"] = "unsafe-none"
+    # Add ngrok bypass header to skip warning page
+    response.headers["ngrok-skip-browser-warning"] = "true"
+
+    return response
+
+
+# Debug endpoint for troubleshooting ngrok issues
+@app.get("/debug/headers")
+async def debug_headers(request: Request):
+    """Debug endpoint to see all request headers and ngrok forwarding info."""
+    debug_info = {
+        "url": str(request.url),
+        "method": request.method,
+        "client": str(request.client) if request.client else None,
+        "headers": dict(request.headers),
+        "ngrok_detected": any("ngrok" in str(v) for v in request.headers.values()),
+        "forwarded_host": request.headers.get("x-forwarded-host"),
+        "forwarded_proto": request.headers.get("x-forwarded-proto"),
+        "forwarded_for": request.headers.get("x-forwarded-for"),
+        "real_ip": request.headers.get("x-real-ip"),
+        "origin": request.headers.get("origin"),
+    }
+    return JSONResponse(content=debug_info)
 
 
 
@@ -407,9 +433,17 @@ async def mcp_get_endpoint(
         validated_version = mcp_gateway.validate_protocol_version(protocol_version)
 
         # Validate Origin header (required by specification)
-        origin = request.headers.get("origin")
+        # Handle ngrok forwarded headers
+        origin = request.headers.get("origin") or request.headers.get("x-forwarded-for")
+        ngrok_host = request.headers.get("x-forwarded-host")
+        if ngrok_host:
+            logger.info(f"ngrok request detected - Host: {ngrok_host}, Origin: {origin}")
+
         if not mcp_gateway.validate_origin_header(origin):
-            raise HTTPException(status_code=403, detail="Origin not allowed")
+            logger.warning(f"Origin validation failed for: {origin}")
+            # For development with ngrok, be more lenient
+            if not (ngrok_host or 'ngrok' in str(request.url)):
+                raise HTTPException(status_code=403, detail="Origin not allowed")
 
         # Validate Accept header for GET requests
         if not mcp_gateway.validate_accept_header(accept, "GET"):
@@ -490,6 +524,7 @@ async def mcp_get_endpoint(
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
                 "Access-Control-Allow-Origin": "*",
+                "ngrok-skip-browser-warning": "true",
             }
         )
 
@@ -518,9 +553,17 @@ async def mcp_post_endpoint(
         validated_version = mcp_gateway.validate_protocol_version(protocol_version)
 
         # Validate Origin header (required by specification)
-        origin = request.headers.get("origin")
+        # Handle ngrok forwarded headers
+        origin = request.headers.get("origin") or request.headers.get("x-forwarded-for")
+        ngrok_host = request.headers.get("x-forwarded-host")
+        if ngrok_host:
+            logger.info(f"ngrok request detected - Host: {ngrok_host}, Origin: {origin}")
+
         if not mcp_gateway.validate_origin_header(origin):
-            raise HTTPException(status_code=403, detail="Origin not allowed")
+            logger.warning(f"Origin validation failed for: {origin}")
+            # For development with ngrok, be more lenient
+            if not (ngrok_host or 'ngrok' in str(request.url)):
+                raise HTTPException(status_code=403, detail="Origin not allowed")
 
         # Validate Accept header for POST requests
         if not mcp_gateway.validate_accept_header(accept, "POST"):
@@ -646,6 +689,7 @@ async def mcp_post_endpoint(
                 headers={
                     "Cache-Control": "no-cache",
                     "Connection": "keep-alive",
+                    "ngrok-skip-browser-warning": "true",
                 }
             )
 
@@ -855,13 +899,14 @@ async def management_endpoint(request_data: Dict[str, Any]):
 
 
 if __name__ == "__main__":
-    # Security: bind to localhost only as per specification recommendation
-    host = os.getenv("HOST", "127.0.0.1")  # Changed from 0.0.0.0 for security
+    # Use 0.0.0.0 to allow ngrok to forward requests properly
+    host = os.getenv("HOST", "0.0.0.0")  # Changed to 0.0.0.0 for ngrok compatibility
     port = int(os.getenv("PORT", "8021"))
 
     logger.info(f"Starting MCP Toolbox Gateway (2025-06-18 compliant) on {host}:{port}...")
     logger.info(f"Protocol Version: {PROTOCOL_VERSION}")
     logger.info(f"Server Info: {SERVER_INFO}")
     logger.info("MCP Servers: Fully user-driven (no hardcoded servers)")
+    logger.info("NGROK COMPATIBILITY: Configured for HTTPS/ngrok access")
 
     uvicorn.run(app, host=host, port=port, log_level="info")

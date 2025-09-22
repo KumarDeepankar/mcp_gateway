@@ -3,21 +3,28 @@
 const MANAGE_URL = (() => {
     const pathname = window.location.pathname;
     const hostname = window.location.hostname;
-    
-    console.log('MCP Portal URL Detection:', { pathname, hostname });
-    
+    const protocol = window.location.protocol;
+
+    console.log('MCP Portal URL Detection:', { pathname, hostname, protocol });
+
+    // Check if we're running via ngrok (HTTPS tunnel)
+    if (hostname.includes('ngrok') || protocol === 'https:') {
+        console.log('Detected ngrok/HTTPS environment');
+        return '/manage';
+    }
+
     // Detect if we're running in Kubernetes by checking the URL path prefix
     if (pathname.startsWith('/toolbox/')) {
         console.log('Detected Kubernetes deployment with /toolbox/ prefix');
         return '/toolbox/manage';
     }
-    
+
     // Local development (localhost with any port) or direct access
     if (hostname === 'localhost' || hostname === '127.0.0.1' || pathname === '/') {
         console.log('Detected local development environment');
         return '/manage';
     }
-    
+
     // Fallback - try relative path
     console.log('Using fallback relative path');
     return 'manage';
@@ -29,21 +36,28 @@ console.log('MCP Portal using MANAGE_URL:', MANAGE_URL);
 const MCP_URL = (() => {
     const pathname = window.location.pathname;
     const hostname = window.location.hostname;
-    
-    console.log('MCP URL Detection:', { pathname, hostname });
-    
+    const protocol = window.location.protocol;
+
+    console.log('MCP URL Detection:', { pathname, hostname, protocol });
+
+    // Check if we're running via ngrok (HTTPS tunnel)
+    if (hostname.includes('ngrok') || protocol === 'https:') {
+        console.log('Detected ngrok/HTTPS environment for MCP');
+        return '/mcp';
+    }
+
     // Detect if we're running in Kubernetes by checking the URL path prefix
     if (pathname.startsWith('/toolbox/')) {
         console.log('Detected Kubernetes deployment with /toolbox/ prefix for MCP');
         return '/toolbox/mcp';
     }
-    
+
     // Local development (localhost with any port) or direct access
     if (hostname === 'localhost' || hostname === '127.0.0.1' || pathname === '/') {
         console.log('Detected local development environment for MCP');
         return '/mcp';
     }
-    
+
     // Fallback - try relative path
     console.log('Using fallback relative path for MCP');
     return 'mcp';
@@ -58,9 +72,71 @@ let currentTab = 'servers';
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('🔧 DOM loaded, initializing...');
+    console.log('🔧 Current location:', window.location.href);
+    console.log('🔧 Environment details:', {
+        hostname: window.location.hostname,
+        protocol: window.location.protocol,
+        pathname: window.location.pathname,
+        isNgrok: window.location.hostname.includes('ngrok'),
+        isHTTPS: window.location.protocol === 'https:'
+    });
+
     initializeTabNavigation();
+
+    // Add debug button for HTTPS environments
+    if (window.location.protocol === 'https:' || window.location.hostname.includes('ngrok')) {
+        addDebugButton();
+    }
+
     loadServers();
 });
+
+// Add debug button for troubleshooting HTTPS/ngrok issues
+function addDebugButton() {
+    const header = document.querySelector('.header-title');
+    if (header) {
+        const debugBtn = document.createElement('button');
+        debugBtn.innerHTML = '🐛 Debug';
+        debugBtn.style.marginLeft = '20px';
+        debugBtn.style.padding = '5px 10px';
+        debugBtn.style.fontSize = '12px';
+        debugBtn.onclick = showDebugInfo;
+        header.parentNode.appendChild(debugBtn);
+    }
+}
+
+// Debug function to help troubleshoot HTTPS/ngrok issues
+async function showDebugInfo() {
+    try {
+        const response = await fetch('/debug/headers');
+        const debugData = await response.json();
+        console.log('🐛 Debug Info:', debugData);
+
+        const debugWindow = window.open('', '_blank', 'width=800,height=600');
+        debugWindow.document.write(`
+            <html>
+                <head><title>MCP Debug Info</title></head>
+                <body>
+                    <h1>MCP Portal Debug Information</h1>
+                    <h2>Frontend Configuration</h2>
+                    <pre>${JSON.stringify({
+                        MANAGE_URL,
+                        MCP_URL,
+                        location: window.location.href,
+                        hostname: window.location.hostname,
+                        protocol: window.location.protocol
+                    }, null, 2)}</pre>
+                    <h2>Backend Headers & Request Info</h2>
+                    <pre>${JSON.stringify(debugData, null, 2)}</pre>
+                </body>
+            </html>
+        `);
+    } catch (error) {
+        console.error('Debug info failed:', error);
+        showAlert('Debug info failed: ' + error.message, 'error');
+    }
+}
 
 // Tab Navigation
 function initializeTabNavigation() {
@@ -108,11 +184,14 @@ function switchTab(tabName) {
 
 // Server Management
 async function loadServers() {
+    console.log('🔧 loadServers() called, using MANAGE_URL:', MANAGE_URL);
+
     try {
         const response = await fetch(MANAGE_URL, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json'
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
             },
             body: JSON.stringify({
                 jsonrpc: "2.0",
@@ -120,6 +199,9 @@ async function loadServers() {
                 id: `load-servers-${Date.now()}`
             })
         });
+
+        console.log('🔧 loadServers response status:', response.status);
+        console.log('🔧 loadServers response headers:', Object.fromEntries(response.headers.entries()));
 
         const data = await response.json();
         if (data.result && data.result.server_cards) {
