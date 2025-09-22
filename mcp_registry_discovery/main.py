@@ -233,8 +233,8 @@ class MCPToolboxGateway:
 
         try:
             parsed = urlparse(origin)
-            # Allow localhost and 127.0.0.1
-            if parsed.hostname in ["localhost", "127.0.0.1"]:
+            # Allow localhost, 127.0.0.1, and 0.0.0.0
+            if parsed.hostname in ["localhost", "127.0.0.1", "0.0.0.0"]:
                 return True
 
             # Allow all ngrok domains for development

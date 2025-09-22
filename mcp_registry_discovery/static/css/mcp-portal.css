@@ -179,6 +179,21 @@ body {
 .header-actions {
     display: flex;
     gap: 0.75rem;
+    align-items: center;
+}
+
+/* Debug button specific styling */
+#debug-btn {
+    order: -1; /* Ensure debug button appears first */
+    background: #fef3c7 !important;
+    color: #d97706 !important;
+    border-color: #fde68a !important;
+}
+
+#debug-btn:hover {
+    background: #fef2f2 !important;
+    color: #dc2626 !important;
+    border-color: #fecaca !important;
 }
 
 .content-area {

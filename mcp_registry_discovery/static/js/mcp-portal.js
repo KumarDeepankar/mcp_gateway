@@ -19,8 +19,10 @@ const MANAGE_URL = (() => {
         return '/toolbox/manage';
     }
 
-    // Local development (localhost with any port) or direct access
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || pathname === '/') {
+    // Local development (localhost, 127.0.0.1, 0.0.0.0, or any local IP) or direct access
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' ||
+        hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.') ||
+        pathname === '/') {
         console.log('Detected local development environment');
         return '/manage';
     }
@@ -52,8 +54,10 @@ const MCP_URL = (() => {
         return '/toolbox/mcp';
     }
 
-    // Local development (localhost with any port) or direct access
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || pathname === '/') {
+    // Local development (localhost, 127.0.0.1, 0.0.0.0, or any local IP) or direct access
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' ||
+        hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.') ||
+        pathname === '/') {
         console.log('Detected local development environment for MCP');
         return '/mcp';
     }
@@ -84,8 +88,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     initializeTabNavigation();
 
-    // Add debug button for HTTPS environments
-    if (window.location.protocol === 'https:' || window.location.hostname.includes('ngrok')) {
+    // Add debug button for HTTPS environments or when URL parameter debug=true
+    const urlParams = new URLSearchParams(window.location.search);
+    const forceDebug = urlParams.get('debug') === 'true';
+
+    if (window.location.protocol === 'https:' || window.location.hostname.includes('ngrok') || forceDebug) {
         addDebugButton();
     }
 
@@ -94,15 +101,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Add debug button for troubleshooting HTTPS/ngrok issues
 function addDebugButton() {
-    const header = document.querySelector('.header-title');
-    if (header) {
+    const headerActions = document.querySelector('.header-actions');
+    if (headerActions && !document.getElementById('debug-btn')) {
         const debugBtn = document.createElement('button');
-        debugBtn.innerHTML = '🐛 Debug';
-        debugBtn.style.marginLeft = '20px';
-        debugBtn.style.padding = '5px 10px';
-        debugBtn.style.fontSize = '12px';
+        debugBtn.id = 'debug-btn';
+        debugBtn.className = 'btn btn-outline btn-sm';
+        debugBtn.innerHTML = '<i class="fas fa-bug"></i> Debug';
         debugBtn.onclick = showDebugInfo;
-        header.parentNode.appendChild(debugBtn);
+        debugBtn.title = 'Show debug information for HTTPS/ngrok troubleshooting';
+
+        // Add the debug button as the first button in header-actions
+        // The CSS gap will handle spacing automatically
+        headerActions.insertBefore(debugBtn, headerActions.firstChild);
     }
 }
 
@@ -113,22 +123,64 @@ async function showDebugInfo() {
         const debugData = await response.json();
         console.log('🐛 Debug Info:', debugData);
 
-        const debugWindow = window.open('', '_blank', 'width=800,height=600');
+        const isHttps = window.location.protocol === 'https:';
+        const isNgrok = window.location.hostname.includes('ngrok');
+
+        const debugWindow = window.open('', '_blank', 'width=900,height=700');
         debugWindow.document.write(`
             <html>
-                <head><title>MCP Debug Info</title></head>
+                <head>
+                    <title>MCP Debug Info</title>
+                    <style>
+                        body { font-family: 'SF Mono', Monaco, monospace; margin: 20px; background: #f8f9fa; }
+                        .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
+                        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+                        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+                        .info { background: #cce7ff; color: #004085; border: 1px solid #80bdff; }
+                        pre { background: white; padding: 15px; border-radius: 5px; overflow: auto; }
+                        h1 { color: #333; }
+                        h2 { color: #666; margin-top: 25px; }
+                    </style>
+                </head>
                 <body>
-                    <h1>MCP Portal Debug Information</h1>
-                    <h2>Frontend Configuration</h2>
+                    <h1>🐛 MCP Portal Debug Information</h1>
+
+                    <div class="status ${isHttps ? 'success' : 'warning'}">
+                        <strong>Connection Status:</strong> ${isHttps ? '✅ HTTPS (Secure)' : '⚠️ HTTP (Insecure)'}
+                        ${isNgrok ? ' via ngrok tunnel' : ''}
+                    </div>
+
+                    <div class="status ${isNgrok ? 'info' : 'warning'}">
+                        <strong>Environment:</strong> ${isNgrok ? '🌐 ngrok tunnel detected' : '🏠 Local development'}
+                    </div>
+
+                    <h2>🖥️ Frontend Configuration</h2>
                     <pre>${JSON.stringify({
                         MANAGE_URL,
                         MCP_URL,
-                        location: window.location.href,
+                        current_location: window.location.href,
                         hostname: window.location.hostname,
-                        protocol: window.location.protocol
+                        protocol: window.location.protocol,
+                        port: window.location.port,
+                        environment_detected: {
+                            isHttps,
+                            isNgrok,
+                            isLocalhost: window.location.hostname === 'localhost'
+                        }
                     }, null, 2)}</pre>
-                    <h2>Backend Headers & Request Info</h2>
+
+                    <h2>🔧 Backend Headers & Request Info</h2>
                     <pre>${JSON.stringify(debugData, null, 2)}</pre>
+
+                    <h2>💡 Troubleshooting Tips</h2>
+                    <div class="status info">
+                        <ul>
+                            <li>If tools discovery fails via HTTPS: Check CORS settings and origin validation</li>
+                            <li>If requests timeout: Verify ngrok tunnel is active and pointing to correct port</li>
+                            <li>If session errors occur: Clear browser cache and refresh the page</li>
+                            <li>For local testing: Add <code>?debug=true</code> to URL to show this debug panel</li>
+                        </ul>
+                    </div>
                 </body>
             </html>
         `);
