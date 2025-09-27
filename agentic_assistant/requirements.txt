@@ -1,0 +1,13 @@
+# requirements.txt
+fastapi
+uvicorn[standard]
+langchain
+langgraph
+pydantic
+google-generativeai
+aiohttp
+pandas
+openpyxl
+python-docx
+python-pptx
+python-multipart

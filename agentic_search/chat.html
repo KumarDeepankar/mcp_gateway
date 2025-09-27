@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Search</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+    <div id="left-page-logo" class="page-logo">
+        <h2>🔍 Agentic Search</h2>
+    </div>
+
+    <button class="mobile-sidebar-toggle" id="mobile-sidebar-toggle" title="Toggle Sidebar">
+        <span>&#9776;</span>
+    </button>
+
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <aside id="left-sidebar">
+        <div class="sidebar-header">
+            <h3>Tools & Controls</h3>
+        </div>
+
+        <div class="sidebar-tool" id="new-search-button">
+            <span class="tool-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5v14m-7-7h14"></path>
+                </svg>
+            </span>
+            <span class="tool-label">New Search</span>
+        </div>
+
+        <div class="sidebar-tool" id="processing-toggle-button">
+            <span class="tool-icon">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 11H3v2h6v-2zm6-6h2v2h-2V5zm0 4h2v2h-2V9zm0 4h2v2h-2v-2zm-6 6H3v2h6v-2z"></path>
+                </svg>
+            </span>
+            <span class="tool-label">Hide Processing</span>
+        </div>
+
+        <hr class="modal-hr" style="margin: 1rem 0;">
+
+        <div class="sidebar-content-placeholder">
+            <div class="enabled-tools-section">
+                <h4>Available Tools</h4>
+                <div id="tool-selection-container">
+                    <p class="loading-message">Loading tools...</p>
+                </div>
+                <button id="refresh-tools-button" class="refresh-btn">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="m3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    </svg>
+                    Refresh
+                </button>
+            </div>
+        </div>
+    </aside>
+
+
+    <div id="search-branding-container">
+        <div id="search-branding">
+            <div class="search-icon">🔍</div>
+            <h1>Agentic Search</h1>
+            <p class="search-subtitle">AI-powered search with MCP tools</p>
+        </div>
+    </div>
+
+    <div id="chat-main-content">
+        <div id="chat-container-wrapper">
+            <div id="chat-console">
+            </div>
+            <div id="input-area">
+                <input type="text" id="message-input" placeholder="Enter your search query..." autocomplete="off">
+                <button id="send-button" aria-label="Send search query">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+                        <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="chat-footer-copyright">
+                <p>&copy; <span id="copyright-year"></span> Agentic Search. AI-powered search with MCP tools.</p>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="static/js/script.js" defer></script>
+</body>
+</html>

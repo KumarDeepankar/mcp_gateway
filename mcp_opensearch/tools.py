@@ -8,14 +8,14 @@ import json
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 import logging
-from opensearchpy import OpenSearch, exceptions as opensearch_exceptions
+import aiohttp
 
 logger = logging.getLogger(__name__)
 
 
 class OpenSearchClient:
     """
-    OpenSearch client for handling search operations.
+    OpenSearch client for handling search operations using HTTP requests.
     """
 
     def __init__(self, hosts: List[str] = None, **kwargs):
@@ -24,46 +24,21 @@ class OpenSearchClient:
             hosts = ["localhost:9200"]
 
         self.hosts = hosts
-        self.client = None
-        self._connect()
+        self.base_url = f"http://{hosts[0]}"
+        self.timeout = aiohttp.ClientTimeout(total=30)
 
-    def _connect(self):
-        """Establish connection to OpenSearch."""
-        try:
-            self.client = OpenSearch(
-                hosts=self.hosts,
-                http_compress=True,  # enables gzip compression for request/response bodies
-                use_ssl=False,  # Disable SSL for localhost development
-                verify_certs=False,
-                ssl_assert_hostname=False,
-                ssl_show_warn=False,
-                timeout=30,
-                max_retries=3,
-                retry_on_timeout=True
-            )
-
-            # Test connection
-            info = self.client.info()
-            logger.info(f"Connected to OpenSearch cluster: {info.get('cluster_name', 'unknown')}")
-
-        except Exception as e:
-            logger.error(f"Failed to connect to OpenSearch: {e}")
-            self.client = None
-
-    def is_connected(self) -> bool:
+    async def is_connected(self) -> bool:
         """Check if client is connected to OpenSearch."""
-        if not self.client:
-            return False
-
         try:
-            self.client.ping()
-            return True
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.get(f"{self.base_url}/_cluster/health") as response:
+                    return response.status == 200
         except Exception:
             return False
 
-    async def search_all_indices(self, query: str, size: int = 10) -> Dict[str, Any]:
+    async def search_stories_index(self, query: str, size: int = 10) -> Dict[str, Any]:
         """
-        Search across all indices in OpenSearch.
+        Search the 'stories' index in OpenSearch.
 
         Args:
             query: Search term
@@ -72,11 +47,11 @@ class OpenSearchClient:
         Returns:
             Dictionary containing search results
         """
-        if not self.is_connected():
+        if not await self.is_connected():
             raise ConnectionError("Not connected to OpenSearch")
 
         try:
-            # Search across all indices using _all
+            # Search the 'stories' index specifically
             search_body = {
                 "query": {
                     "multi_match": {
@@ -91,54 +66,71 @@ class OpenSearchClient:
                 ]
             }
 
-            response = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.client.search(
-                    index="_all",
-                    body=search_body
-                )
-            )
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                async with session.post(
+                    f"{self.base_url}/stories/_search",
+                    json=search_body,
+                    headers={"Content-Type": "application/json"}
+                ) as response:
+                    if response.status == 404:
+                        return {
+                            "total_hits": 0,
+                            "max_score": 0,
+                            "hits": [],
+                            "took": 0,
+                            "timed_out": False,
+                            "error": "Stories index not found"
+                        }
 
-            return {
-                "total_hits": response["hits"]["total"]["value"],
-                "max_score": response["hits"]["max_score"],
-                "hits": response["hits"]["hits"],
-                "took": response["took"],
-                "timed_out": response["timed_out"]
-            }
+                    response.raise_for_status()
+                    result = await response.json()
 
-        except opensearch_exceptions.NotFoundError:
-            return {
-                "total_hits": 0,
-                "max_score": 0,
-                "hits": [],
-                "took": 0,
-                "timed_out": False,
-                "error": "No indices found"
-            }
+                    return {
+                        "total_hits": result["hits"]["total"]["value"] if isinstance(result["hits"]["total"], dict) else result["hits"]["total"],
+                        "max_score": result["hits"]["max_score"],
+                        "hits": result["hits"]["hits"],
+                        "took": result["took"],
+                        "timed_out": result["timed_out"]
+                    }
+
+        except aiohttp.ClientResponseError as e:
+            if e.status == 404:
+                return {
+                    "total_hits": 0,
+                    "max_score": 0,
+                    "hits": [],
+                    "took": 0,
+                    "timed_out": False,
+                    "error": "Stories index not found"
+                }
+            else:
+                logger.error(f"HTTP error: {e}")
+                raise
         except Exception as e:
             logger.error(f"Search error: {e}")
             raise
 
     async def get_cluster_info(self) -> Dict[str, Any]:
         """Get OpenSearch cluster information."""
-        if not self.is_connected():
+        if not await self.is_connected():
             raise ConnectionError("Not connected to OpenSearch")
 
         try:
-            info = await asyncio.get_event_loop().run_in_executor(
-                None, self.client.info
-            )
+            async with aiohttp.ClientSession(timeout=self.timeout) as session:
+                # Get cluster info
+                async with session.get(f"{self.base_url}/") as response:
+                    response.raise_for_status()
+                    info = await response.json()
 
-            # Get indices information
-            indices_response = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.client.cat.indices(format="json")
-            )
+                # Get indices information
+                async with session.get(f"{self.base_url}/_cat/indices?format=json") as response:
+                    response.raise_for_status()
+                    indices_response = await response.json()
 
-            return {
-                "cluster_info": info,
-                "indices": indices_response if indices_response else []
-            }
+                return {
+                    "cluster_info": info,
+                    "indices": indices_response if indices_response else []
+                }
 
         except Exception as e:
             logger.error(f"Failed to get cluster info: {e}")
@@ -164,13 +156,13 @@ class MCPOpenSearchTools:
         self.tools_registry["opensearch_search"] = {
             "definition": {
                 "name": "opensearch_search",
-                "description": "Search across all OpenSearch indices for documents containing the specified term",
+                "description": "Search the 'stories' index in OpenSearch for documents containing the specified term",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search term or query string to search for across all indices"
+                            "description": "Search term or query string to search for in the stories index"
                         },
                         "size": {
                             "type": "integer",
@@ -257,14 +249,14 @@ class MCPOpenSearchTools:
             return "Error: No search query provided"
 
         try:
-            results = await self.opensearch_client.search_all_indices(query, size)
+            results = await self.opensearch_client.search_stories_index(query, size)
 
             if "error" in results:
                 return f"Search error: {results['error']}"
 
             # Format search results
             output = []
-            output.append(f"OpenSearch Results for query: '{query}'")
+            output.append(f"OpenSearch Stories Index Results for query: '{query}'")
             output.append(f"Total hits: {results['total_hits']}")
             output.append(f"Search took: {results['took']}ms")
             output.append(f"Max score: {results['max_score']}")
@@ -291,7 +283,7 @@ class MCPOpenSearchTools:
 
                     output.append("")
             else:
-                output.append("No results found.")
+                output.append("No results found in the stories index.")
 
             return "\n".join(output)
 
@@ -340,7 +332,7 @@ class MCPOpenSearchTools:
     async def _handle_opensearch_status(self, arguments: Dict[str, Any]) -> str:
         """Handle OpenSearch status check tool execution."""
         try:
-            is_connected = self.opensearch_client.is_connected()
+            is_connected = await self.opensearch_client.is_connected()
 
             if is_connected:
                 return "✅ OpenSearch connection: ACTIVE\nSuccessfully connected to OpenSearch cluster at localhost:9200"
