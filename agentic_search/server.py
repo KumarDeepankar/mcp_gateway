@@ -16,7 +16,7 @@ from pathlib import Path
 from pydantic import BaseModel
 from langgraph.types import Command, StateSnapshot
 
-from ollama_query_agent.graph_definition import optimized_compiled_agent as search_compiled_agent
+from ollama_query_agent.graph_definition import compiled_agent as search_compiled_agent
 from ollama_query_agent.mcp_tool_client import mcp_tool_client
 
 app = FastAPI(
@@ -141,15 +141,23 @@ async def search_interaction_stream(session_id: str, query: str, enabled_tools: 
                             if "final_response_content" in node_output:
                                 final_response = node_output.get("final_response_content", "")
                                 if final_response:
-                                    # Simulate streaming by chunking the response
-                                    words = final_response.split()
-                                    for i in range(0, len(words), 3):  # Send 3 words at a time
-                                        chunk = " ".join(words[i:i+3])
-                                        if i + 3 < len(words):
-                                            chunk += " "
-                                        final_response_content += chunk
-                                        yield chunk
-                                        await asyncio.sleep(0.1)  # Slower for better readability
+                                    # Check if response contains HTML
+                                    if '<' in final_response and '>' in final_response:
+                                        # Send HTML content in larger chunks to preserve formatting
+                                        yield f"HTML_CONTENT_START:\n"
+                                        await asyncio.sleep(0.01)
+                                        yield final_response
+                                        yield f"\nHTML_CONTENT_END:\n"
+                                    else:
+                                        # Simulate streaming by chunking the response for plain text
+                                        words = final_response.split()
+                                        for i in range(0, len(words), 3):  # Send 3 words at a time
+                                            chunk = " ".join(words[i:i+3])
+                                            if i + 3 < len(words):
+                                                chunk += " "
+                                            final_response_content += chunk
+                                            yield chunk
+                                            await asyncio.sleep(0.1)  # Slower for better readability
 
                         if node_output.get("error_message") and not final_response_started:
                             error_msg = node_output['error_message']

@@ -4,7 +4,7 @@ An AI-powered search agent using Ollama and MCP tools, built with LangGraph and 
 
 ## Features
 
-- **LangGraph-based Agent**: Multi-step search planning and execution
+- **Optimized 2-LLM Workflow**: Streamlined execution with exactly 2 LLM calls maximum
 - **Ollama Integration**: Uses local llama3.2:latest model
 - **MCP Tool Discovery**: Dynamically discovers and uses tools from MCP registry
 - **Real-time Streaming**: Live progress with thinking steps before final response
@@ -12,6 +12,7 @@ An AI-powered search agent using Ollama and MCP tools, built with LangGraph and 
 - **Tool Management**: Enable/disable tools through web interface
 - **Modern Glass UI**: Beautiful glassmorphism design with gradient backgrounds
 - **Responsive Design**: Works perfectly on desktop and mobile devices
+- **Performance Optimized**: Reduced latency and efficient resource usage
 
 ## Prerequisites
 
@@ -85,11 +86,11 @@ chmod +x start.sh
 
 ## Agent Workflow
 
-1. **Initialize**: Setup search session
+1. **Initialize**: Setup search session with iteration control
 2. **Discover Tools**: Fetch available tools from MCP registry
-3. **Planning**: Create search strategy using enabled tools
-4. **Execute Steps**: Run tool calls and reasoning steps
-5. **Generate Response**: Stream final answer to user
+3. **Unified Planning & Decision**: Intelligent planning, execution, and response generation in one node
+4. **Execute Steps**: Run tool calls and reasoning steps as needed
+5. **Dynamic Response**: Generate response when sufficient information is gathered
 
 ## API Endpoints
 
@@ -166,7 +167,13 @@ python test_basic.py
 
 Check the console output for detailed error messages and agent thinking steps.
 
-### Recent Fixes & Improvements (Latest Update)
+### Key Improvements & Optimizations
+
+#### ⚡ Performance Optimizations
+- **2-LLM Maximum**: Streamlined workflow reduces LLM calls to exactly 2
+- **Unified Decision Node**: Single node handles planning, execution, and response decisions
+- **Efficient Resource Usage**: Reduced latency and improved response times
+- **Smart Iteration Control**: 5-iteration limit prevents infinite loops
 
 #### ✅ Streaming & Visualization
 - **Fixed Streaming Order**: Thinking steps now appear BEFORE final response
@@ -182,10 +189,10 @@ Check the console output for detailed error messages and agent thinking steps.
 - **Mobile Responsive**: Optimized for all screen sizes
 
 #### ✅ Technical Improvements
+- **Workflow Simplification**: Removed redundant standard workflow, keeping only optimized version
 - **JSON Parsing**: Robust handling of Ollama responses with fallback plans
 - **Error Handling**: Better connection error messages and recovery
 - **Prompts**: Improved prompts for more consistent JSON generation
-- **Testing**: Added comprehensive component and streaming tests
 
 ## Development
 
@@ -208,13 +215,15 @@ python -c "from ollama_query_agent.ollama_client import ollama_client; print('OK
 python -c "from ollama_query_agent.mcp_tool_client import mcp_tool_client; print('OK')"
 ```
 
-## Architecture Comparison
+## Architecture Highlights
 
-This service is inspired by the agentic_assistant but with key differences:
+This service features an optimized architecture designed for efficiency:
 
-- **Local LLM**: Uses Ollama instead of cloud-based Gemini
-- **Simplified Workflow**: Focused on search tasks
-- **Tool-Centric**: Emphasizes MCP tool usage
+- **Local LLM**: Uses Ollama instead of cloud-based services
+- **Optimized Workflow**: Maximum 2 LLM calls for any search operation
+- **Tool-Centric**: Prioritizes MCP tool usage for factual information
 - **Streaming UI**: Real-time progress and results
+- **Smart Iteration Control**: Prevents infinite loops with 5-iteration limit
+- **Unified Decision Making**: Single node handles planning, execution decisions, and response generation
 
 Enjoy intelligent searching with your local AI agent! 🔍🤖

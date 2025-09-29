@@ -271,6 +271,7 @@ class AgenticSearch {
         let currentAssistantMessage = null;
         let currentStepChain = null;
         let finalResponseStarted = false;
+        let htmlContentMode = false;
 
         try {
             while (true) {
@@ -306,12 +307,25 @@ class AgenticSearch {
                         finalResponseStarted = true;
                         // Add a separator before final response
                         this.addResponseSeparator();
+                    } else if (line.startsWith('HTML_CONTENT_START:')) {
+                        htmlContentMode = true;
+                        if (!currentAssistantMessage) {
+                            currentAssistantMessage = this.addMessage('assistant', '');
+                        }
+                    } else if (line.startsWith('HTML_CONTENT_END:')) {
+                        htmlContentMode = false;
                     } else if (finalResponseStarted) {
                         // This is part of the final response
                         if (!currentAssistantMessage) {
                             currentAssistantMessage = this.addMessage('assistant', '');
                         }
-                        this.appendToMessage(currentAssistantMessage, line);
+                        if (htmlContentMode) {
+                            // For HTML content, use innerHTML directly
+                            currentAssistantMessage.innerHTML += line;
+                        } else {
+                            // For regular text, append normally
+                            this.appendToMessage(currentAssistantMessage, line);
+                        }
                     }
                 }
             }
@@ -340,7 +354,14 @@ class AgenticSearch {
     }
 
     appendToMessage(messageElement, content) {
-        messageElement.textContent += content;
+        // Check if content contains HTML tags
+        if (content.includes('<') && content.includes('>')) {
+            // Content appears to be HTML, use innerHTML
+            messageElement.innerHTML += content;
+        } else {
+            // Plain text content, use textContent
+            messageElement.textContent += content;
+        }
         this.scrollToBottom();
     }
 
