@@ -37,7 +37,7 @@ echo "🔧 Checking MCP Registry Discovery..."
 curl -s http://localhost:8021/health >/dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo "⚠️  Warning: MCP Registry Discovery not accessible at localhost:8021"
-    echo "   Please start it from: ../mcp_registry_discovery/main.py"
+    echo "   Please start it from: ../tools_gateway/main.py"
     echo ""
     echo "   Starting server anyway (tools discovery will be limited)..."
 else

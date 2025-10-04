@@ -88,107 +88,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     initializeTabNavigation();
 
-    // Add debug button for HTTPS environments or when URL parameter debug=true
-    const urlParams = new URLSearchParams(window.location.search);
-    const forceDebug = urlParams.get('debug') === 'true';
-
-    if (window.location.protocol === 'https:' || window.location.hostname.includes('ngrok') || forceDebug) {
-        addDebugButton();
-    }
-
     loadServers();
 });
-
-// Add debug button for troubleshooting HTTPS/ngrok issues
-function addDebugButton() {
-    const headerActions = document.querySelector('.header-actions');
-    if (headerActions && !document.getElementById('debug-btn')) {
-        const debugBtn = document.createElement('button');
-        debugBtn.id = 'debug-btn';
-        debugBtn.className = 'btn btn-outline btn-sm';
-        debugBtn.innerHTML = '<i class="fas fa-bug"></i> Debug';
-        debugBtn.onclick = showDebugInfo;
-        debugBtn.title = 'Show debug information for HTTPS/ngrok troubleshooting';
-
-        // Add the debug button as the first button in header-actions
-        // The CSS gap will handle spacing automatically
-        headerActions.insertBefore(debugBtn, headerActions.firstChild);
-    }
-}
-
-// Debug function to help troubleshoot HTTPS/ngrok issues
-async function showDebugInfo() {
-    try {
-        const response = await fetch('/debug/headers');
-        const debugData = await response.json();
-        console.log('🐛 Debug Info:', debugData);
-
-        const isHttps = window.location.protocol === 'https:';
-        const isNgrok = window.location.hostname.includes('ngrok');
-
-        const debugWindow = window.open('', '_blank', 'width=900,height=700');
-        debugWindow.document.write(`
-            <html>
-                <head>
-                    <title>MCP Debug Info</title>
-                    <style>
-                        body { font-family: 'SF Mono', Monaco, monospace; margin: 20px; background: #f8f9fa; }
-                        .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
-                        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-                        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
-                        .info { background: #cce7ff; color: #004085; border: 1px solid #80bdff; }
-                        pre { background: white; padding: 15px; border-radius: 5px; overflow: auto; }
-                        h1 { color: #333; }
-                        h2 { color: #666; margin-top: 25px; }
-                    </style>
-                </head>
-                <body>
-                    <h1>🐛 MCP Portal Debug Information</h1>
-
-                    <div class="status ${isHttps ? 'success' : 'warning'}">
-                        <strong>Connection Status:</strong> ${isHttps ? '✅ HTTPS (Secure)' : '⚠️ HTTP (Insecure)'}
-                        ${isNgrok ? ' via ngrok tunnel' : ''}
-                    </div>
-
-                    <div class="status ${isNgrok ? 'info' : 'warning'}">
-                        <strong>Environment:</strong> ${isNgrok ? '🌐 ngrok tunnel detected' : '🏠 Local development'}
-                    </div>
-
-                    <h2>🖥️ Frontend Configuration</h2>
-                    <pre>${JSON.stringify({
-                        MANAGE_URL,
-                        MCP_URL,
-                        current_location: window.location.href,
-                        hostname: window.location.hostname,
-                        protocol: window.location.protocol,
-                        port: window.location.port,
-                        environment_detected: {
-                            isHttps,
-                            isNgrok,
-                            isLocalhost: window.location.hostname === 'localhost'
-                        }
-                    }, null, 2)}</pre>
-
-                    <h2>🔧 Backend Headers & Request Info</h2>
-                    <pre>${JSON.stringify(debugData, null, 2)}</pre>
-
-                    <h2>💡 Troubleshooting Tips</h2>
-                    <div class="status info">
-                        <ul>
-                            <li>If tools discovery fails via HTTPS: Check CORS settings and origin validation</li>
-                            <li>If requests timeout: Verify ngrok tunnel is active and pointing to correct port</li>
-                            <li>If session errors occur: Clear browser cache and refresh the page</li>
-                            <li>For local testing: Add <code>?debug=true</code> to URL to show this debug panel</li>
-                        </ul>
-                    </div>
-                </body>
-            </html>
-        `);
-    } catch (error) {
-        console.error('Debug info failed:', error);
-        showAlert('Debug info failed: ' + error.message, 'error');
-    }
-}
 
 // Tab Navigation
 function initializeTabNavigation() {
@@ -231,6 +132,9 @@ function switchTab(tabName) {
         discoverTools();
     } else if (tabName === 'capabilities' && Object.keys(currentCapabilities).length === 0) {
         loadCapabilities();
+    } else if (tabName === 'configuration') {
+        loadAllConfig();
+        loadServerHealth();
     }
 }
 
@@ -309,7 +213,7 @@ function displayServers(servers) {
                     <div class="endpoint-url">${server.url}</div>
                 </div>
                 <div class="col-capabilities">
-                    <span class="capabilities-count">${Object.keys(server.capabilities || {}).length}</span>
+                    <span class="capabilities-count">${server.tool_count || 0}</span>
                 </div>
                 <div class="col-version">
                     <span class="version-tag">${server.metadata?.protocol_version || 'N/A'}</span>
@@ -335,11 +239,16 @@ function displayServers(servers) {
 }
 
 function getServerStatus(server) {
-    // Simple status determination - you could enhance this with actual health checks
+    // Use actual health status from backend if available
+    if (server.status) {
+        return server.status.charAt(0).toUpperCase() + server.status.slice(1);
+    }
+
+    // Fallback to time-based status if health status not available
     const now = new Date();
     const updated = new Date(server.updated_at);
     const diffHours = (now - updated) / (1000 * 60 * 60);
-    
+
     if (diffHours < 1) return 'Online';
     if (diffHours < 24) return 'Pending';
     return 'Offline';
@@ -1243,3 +1152,247 @@ function filterTools() {
         row.style.display = matches ? 'flex' : 'none';
     });
 }
+// ===== Configuration Management Functions =====
+
+// Load all configuration
+async function loadAllConfig() {
+    console.log('loadAllConfig() called');
+    try {
+        const response = await fetch('/config');
+        console.log('Config response status:', response.status);
+        const config = await response.json();
+        console.log('Config data received:', config);
+
+        // Load health config
+        if (config.connection_health) {
+            loadHealthConfigData(config.connection_health);
+        }
+
+        // Load origin config
+        if (config.origin) {
+            loadOriginConfigData(config.origin);
+        }
+
+        return config;
+    } catch (error) {
+        console.error('Error loading configuration:', error);
+        showNotification('Failed to load configuration', 'error');
+    }
+}
+
+// Health Configuration
+function loadHealthConfigData(healthConfig) {
+    document.getElementById('healthEnabled').checked = healthConfig.enabled;
+    document.getElementById('healthCheckInterval').value = healthConfig.check_interval_seconds;
+    document.getElementById('healthStaleTimeout').value = healthConfig.stale_timeout_seconds;
+    document.getElementById('healthMaxRetry').value = healthConfig.max_retry_attempts;
+    document.getElementById('healthRetryDelay').value = healthConfig.retry_delay_seconds;
+    
+    document.getElementById('healthConfigStatus').textContent = 'Loaded';
+    document.getElementById('healthConfigStatus').className = 'test-status success';
+}
+
+async function loadHealthConfig() {
+    const config = await loadAllConfig();
+    if (config) {
+        showNotification('Health configuration reloaded', 'success');
+    }
+}
+
+function updateHealthConfigStatus() {
+    document.getElementById('healthConfigStatus').textContent = 'Modified';
+    document.getElementById('healthConfigStatus').className = 'test-status pending';
+}
+
+async function saveHealthConfig() {
+    const healthConfig = {
+        enabled: document.getElementById('healthEnabled').checked,
+        check_interval_seconds: parseInt(document.getElementById('healthCheckInterval').value),
+        stale_timeout_seconds: parseInt(document.getElementById('healthStaleTimeout').value),
+        max_retry_attempts: parseInt(document.getElementById('healthMaxRetry').value),
+        retry_delay_seconds: parseInt(document.getElementById('healthRetryDelay').value)
+    };
+    
+    try {
+        const response = await fetch('/config/health', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(healthConfig)
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            document.getElementById('healthConfigStatus').textContent = 'Saved';
+            document.getElementById('healthConfigStatus').className = 'test-status success';
+            showNotification('Health configuration saved successfully', 'success');
+        } else {
+            showNotification('Failed to save health configuration', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving health config:', error);
+        showNotification('Error saving health configuration', 'error');
+    }
+}
+
+// Origin Configuration
+function loadOriginConfigData(originConfig) {
+    console.log('Loading origin config:', originConfig);
+
+    if (originConfig && originConfig.allowed_origins) {
+        renderAllowedOrigins(originConfig.allowed_origins);
+    } else {
+        console.warn('No allowed_origins in config:', originConfig);
+        renderAllowedOrigins([]);
+    }
+
+    document.getElementById('originConfigStatus').textContent = 'Loaded';
+    document.getElementById('originConfigStatus').className = 'test-status success';
+}
+
+function renderAllowedOrigins(origins) {
+    console.log('Rendering allowed origins:', origins);
+    const container = document.getElementById('allowedOriginsList');
+
+    if (!container) {
+        console.error('allowedOriginsList container not found!');
+        return;
+    }
+
+    console.log('Container found:', container);
+
+    if (!origins || origins.length === 0) {
+        console.log('No origins, setting empty state');
+        container.innerHTML = '<span class="empty-state">No origins configured</span>';
+        return;
+    }
+
+    const html = origins.map(origin => `
+        <span class="tag">
+            ${origin}
+            <button class="tag-remove" onclick="removeOrigin('${origin}')">&times;</button>
+        </span>
+    `).join('');
+
+    console.log('Setting innerHTML to:', html);
+    container.innerHTML = html;
+    console.log('After setting, container.innerHTML is:', container.innerHTML);
+}
+
+async function loadOriginConfig() {
+    const config = await loadAllConfig();
+    if (config) {
+        showNotification('Origin configuration reloaded', 'success');
+    }
+}
+
+function updateOriginConfigStatus() {
+    document.getElementById('originConfigStatus').textContent = 'Modified';
+    document.getElementById('originConfigStatus').className = 'test-status pending';
+}
+
+async function addOrigin() {
+    const newOrigin = document.getElementById('newOrigin').value.trim();
+    if (!newOrigin) {
+        showNotification('Please enter an origin', 'error');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/config/origin/add', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ origin: newOrigin })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            document.getElementById('newOrigin').value = '';
+            await loadOriginConfig();
+            showNotification(`Origin '${newOrigin}' added successfully`, 'success');
+        } else {
+            showNotification('Failed to add origin', 'error');
+        }
+    } catch (error) {
+        console.error('Error adding origin:', error);
+        showNotification('Error adding origin', 'error');
+    }
+}
+
+async function removeOrigin(origin) {
+    try {
+        const response = await fetch('/config/origin/remove', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ origin: origin })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            await loadOriginConfig();
+            showNotification(`Origin '${origin}' removed successfully`, 'success');
+        } else {
+            showNotification('Failed to remove origin', 'error');
+        }
+    } catch (error) {
+        console.error('Error removing origin:', error);
+        showNotification('Error removing origin', 'error');
+    }
+}
+
+// Removed saveOriginConfig - origins are now saved individually via add/remove
+
+// Server Health Status
+async function loadServerHealth() {
+    try {
+        const response = await fetch('/health/servers');
+        const healthData = await response.json();
+        
+        const container = document.getElementById('serverHealthList');
+        
+        if (Object.keys(healthData).length === 0) {
+            container.innerHTML = '<p class="empty-state">No server health data available</p>';
+            return;
+        }
+        
+        container.innerHTML = Object.entries(healthData).map(([url, health]) => `
+            <div class="health-card">
+                <div class="health-card-header">
+                    <div class="health-server-url">${url}</div>
+                    <div class="health-status ${health.is_healthy ? 'healthy' : 'unhealthy'}">
+                        <i class="fas fa-${health.is_healthy ? 'check-circle' : 'exclamation-circle'}"></i>
+                        ${health.is_healthy ? 'Healthy' : 'Unhealthy'}
+                    </div>
+                </div>
+                <div class="health-card-body">
+                    <div class="health-info-row">
+                        <span class="health-label">Last Success:</span>
+                        <span class="health-value">${health.last_success || 'Never'}</span>
+                    </div>
+                    <div class="health-info-row">
+                        <span class="health-label">Last Check:</span>
+                        <span class="health-value">${health.last_check || 'Never'}</span>
+                    </div>
+                    <div class="health-info-row">
+                        <span class="health-label">Consecutive Failures:</span>
+                        <span class="health-value">${health.consecutive_failures}</span>
+                    </div>
+                    ${health.last_error ? `
+                        <div class="health-info-row">
+                            <span class="health-label">Last Error:</span>
+                            <span class="health-value error">${health.last_error}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading server health:', error);
+        showNotification('Failed to load server health status', 'error');
+    }
+}
+
+// Configuration loading is now handled in switchTab() function
+

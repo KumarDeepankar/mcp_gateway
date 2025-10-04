@@ -7,7 +7,17 @@ echo "🌐 Getting MCP Gateway HTTPS endpoint..."
 
 # Check if ngrok is running
 if ! curl -s http://localhost:4040 > /dev/null 2>&1; then
-    echo "❌ Ngrok is not running. Please start services first with ./start.sh"
+    echo ""
+    echo "❌ Ngrok is not running"
+    echo ""
+    echo "ℹ️  Ngrok is disabled by default (free tier limited to 3 tunnels)"
+    echo ""
+    echo "To start ngrok:"
+    echo "  ./start-ngrok.sh"
+    echo "  OR"
+    echo "  make ngrok"
+    echo ""
+    echo "Note: You may need to edit ngrok/ngrok.yml to select 3 services"
     exit 1
 fi
 

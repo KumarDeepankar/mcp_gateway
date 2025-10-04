@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-MCP Toolbox - Fully Compliant with 2025-06-18 Specification
+Tools Gateway - Fully Compliant with 2025-06-18 Specification
 Centralized gateway implementing pure Streamable HTTP transport
+With dynamic origin configuration and connection health monitoring
 """
 import asyncio
 from contextlib import asynccontextmanager
@@ -21,6 +22,7 @@ import uvicorn
 
 from services import discovery_service, connection_manager, ToolNotFoundException
 from mcp_storage import mcp_storage_manager
+from config import config_manager
 # No hardcoded server imports - fully user-driven
 
 # Configure logging per MCP 2025-06-18 specification
@@ -33,7 +35,7 @@ logger = logging.getLogger(__name__)
 # Protocol constants as per 2025-06-18 specification
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_INFO = {
-    "name": "mcp-toolbox-gateway",
+    "name": "tools-gateway",
     "version": "1.0.0"
 }
 
@@ -226,31 +228,37 @@ class MCPToolboxGateway:
         """
         Validate Origin header to prevent DNS rebinding attacks.
         Required by 2025-06-18 specification.
-        Enhanced for ngrok compatibility.
+        Uses in-memory cache for fast O(1) validation.
         """
         if not origin:
             return True  # Allow requests without Origin header for local development
 
         try:
             parsed = urlparse(origin)
-            # Allow localhost, 127.0.0.1, and 0.0.0.0
-            if parsed.hostname in ["localhost", "127.0.0.1", "0.0.0.0"]:
+            hostname = parsed.hostname
+
+            # Get cached configuration (fast in-memory access, no pickle reads)
+            allowed_origins, allow_ngrok, allow_https = config_manager.get_origin_validation_config()
+
+            # Fast O(1) set lookup for configured allowed origins
+            if hostname in allowed_origins:
                 return True
 
-            # Allow all ngrok domains for development
-            if parsed.hostname and (
-                parsed.hostname.endswith('.ngrok-free.app') or
-                parsed.hostname.endswith('.ngrok.io') or
-                parsed.hostname.endswith('.ngrok.app') or
-                '.ngrok.' in parsed.hostname
+            # Check if ngrok is allowed
+            if allow_ngrok and hostname and (
+                hostname.endswith('.ngrok-free.app') or
+                hostname.endswith('.ngrok.io') or
+                hostname.endswith('.ngrok.app') or
+                '.ngrok.' in hostname
             ):
                 return True
 
-            # For development, allow any HTTPS origin (can be restricted in production)
-            if parsed.scheme == 'https':
+            # Check if HTTPS origins are allowed
+            if allow_https and parsed.scheme == 'https':
                 logger.info(f"Allowing HTTPS origin: {origin}")
                 return True
 
+            logger.warning(f"Origin not allowed: {origin}")
             return False
         except Exception as e:
             logger.warning(f"Invalid Origin header: {origin}, error: {e}")
@@ -340,22 +348,27 @@ mcp_gateway = MCPToolboxGateway()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handles application startup and shutdown events."""
-    logger.info("MCP Toolbox starting up...")
+    logger.info("Tools Gateway starting up...")
     # Initialize storage manager
     await mcp_storage_manager.initialize()
     discovery_service.storage_manager = mcp_storage_manager
     # Initialize and warm up the discovery service cache
     await discovery_service.refresh_tool_index()
+    # Start health monitoring
+    await discovery_service.start_health_monitoring()
+    logger.info("Connection health monitoring started")
     yield
-    logger.info("MCP Toolbox shutting down...")
+    logger.info("Tools Gateway shutting down...")
+    # Stop health monitoring
+    await discovery_service.stop_health_monitoring()
     # Cleanly close the connection manager's session
     await connection_manager.close_session()
 
 
 # Create FastAPI app with proper configuration
 app = FastAPI(
-    title="MCP Toolbox Gateway",
-    description="Centralized gateway implementing MCP 2025-06-18 Streamable HTTP transport",
+    title="Tools Gateway",
+    description="Centralized gateway implementing MCP 2025-06-18 Streamable HTTP transport with health monitoring",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -858,15 +871,28 @@ async def management_endpoint(request_data: Dict[str, Any]):
             try:
                 servers = await mcp_storage_manager.get_all_servers()
                 server_cards = {}
-                
+
                 for server_id, server_info in servers.items():
+                    # Count tools for this server
+                    tool_count = sum(1 for tool_server_url in discovery_service.tool_to_server_map.values()
+                                   if tool_server_url == server_info.url)
+
+                    # Get health status for this server
+                    health_status = discovery_service.server_health.get(server_info.url)
+                    if health_status:
+                        status = "online" if health_status.is_healthy else "offline"
+                    else:
+                        status = "unknown"
+
                     server_cards[server_id] = {
                         "name": server_info.name,
                         "url": server_info.url,
                         "description": server_info.description,
                         "capabilities": server_info.capabilities,
                         "metadata": server_info.metadata,
-                        "updated_at": server_info.updated_at.isoformat()
+                        "updated_at": server_info.updated_at.isoformat(),
+                        "tool_count": tool_count,
+                        "status": status
                     }
                 
                 return JSONResponse(content={
@@ -898,15 +924,118 @@ async def management_endpoint(request_data: Dict[str, Any]):
         }, status_code=500)
 
 
+# Configuration API endpoints
+@app.get("/config")
+async def get_config():
+    """Get current gateway configuration"""
+    import json
+    config = config_manager.get_all_config()
+    # Convert datetime to string for JSON serialization
+    return JSONResponse(content=json.loads(json.dumps(config, default=str)))
+
+
+@app.post("/config/health")
+async def update_health_config(request_data: Dict[str, Any]):
+    """Update connection health monitoring configuration"""
+    try:
+        updated_config = config_manager.update_connection_health_config(**request_data)
+
+        # Restart health monitoring with new config
+        await discovery_service.stop_health_monitoring()
+        await discovery_service.start_health_monitoring()
+
+        return JSONResponse(content={
+            "success": True,
+            "config": updated_config.model_dump()
+        })
+    except Exception as e:
+        logger.error(f"Error updating health config: {e}")
+        return JSONResponse(content={
+            "error": str(e)
+        }, status_code=400)
+
+
+@app.post("/config/origin/add")
+async def add_allowed_origin(request_data: Dict[str, Any]):
+    """Add an allowed origin"""
+    try:
+        origin = request_data.get("origin")
+        if not origin:
+            return JSONResponse(content={
+                "error": "origin parameter required"
+            }, status_code=400)
+
+        success = config_manager.add_allowed_origin(origin)
+        return JSONResponse(content={
+            "success": success,
+            "message": f"Origin '{origin}' {'added' if success else 'already exists'}"
+        })
+    except Exception as e:
+        logger.error(f"Error adding origin: {e}")
+        return JSONResponse(content={
+            "error": str(e)
+        }, status_code=400)
+
+
+@app.post("/config/origin/remove")
+async def remove_allowed_origin(request_data: Dict[str, Any]):
+    """Remove an allowed origin"""
+    try:
+        origin = request_data.get("origin")
+        if not origin:
+            return JSONResponse(content={
+                "error": "origin parameter required"
+            }, status_code=400)
+
+        success = config_manager.remove_allowed_origin(origin)
+        return JSONResponse(content={
+            "success": success,
+            "message": f"Origin '{origin}' {'removed' if success else 'not found'}"
+        })
+    except Exception as e:
+        logger.error(f"Error removing origin: {e}")
+        return JSONResponse(content={
+            "error": str(e)
+        }, status_code=400)
+
+
+@app.post("/config/origin")
+async def update_origin_config(request_data: Dict[str, Any]):
+    """Update origin configuration (allow_ngrok, allow_https)"""
+    try:
+        updated_config = config_manager.update_origin_config(**request_data)
+        return JSONResponse(content={
+            "success": True,
+            "config": updated_config.model_dump()
+        })
+    except Exception as e:
+        logger.error(f"Error updating origin config: {e}")
+        return JSONResponse(content={
+            "error": str(e)
+        }, status_code=400)
+
+
+@app.get("/health/servers")
+async def get_servers_health():
+    """Get health status of all connected servers"""
+    return JSONResponse(content=discovery_service.get_server_health_status())
+
+
+@app.get("/health/servers/{server_url:path}")
+async def get_server_health(server_url: str):
+    """Get health status of a specific server"""
+    return JSONResponse(content=discovery_service.get_server_health_status(server_url))
+
+
 if __name__ == "__main__":
     # Use 0.0.0.0 to allow ngrok to forward requests properly
     host = os.getenv("HOST", "0.0.0.0")  # Changed to 0.0.0.0 for ngrok compatibility
     port = int(os.getenv("PORT", "8021"))
 
-    logger.info(f"Starting MCP Toolbox Gateway (2025-06-18 compliant) on {host}:{port}...")
+    logger.info(f"Starting Tools Gateway (2025-06-18 compliant) on {host}:{port}...")
     logger.info(f"Protocol Version: {PROTOCOL_VERSION}")
     logger.info(f"Server Info: {SERVER_INFO}")
-    logger.info("MCP Servers: Fully user-driven (no hardcoded servers)")
+    logger.info("Features: Health monitoring, dynamic origin configuration, user-driven MCP servers")
     logger.info("NGROK COMPATIBILITY: Configured for HTTPS/ngrok access")
 
     uvicorn.run(app, host=host, port=port, log_level="info")

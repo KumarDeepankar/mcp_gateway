@@ -54,6 +54,12 @@
                         Testing
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-tab="configuration">
+                        <i class="fas fa-cog"></i>
+                        Configuration
+                    </a>
+                </li>
             </ul>
         </div>
 
@@ -200,6 +206,107 @@
                                 </button>
                             </div>
                             <div id="testResults" class="test-results" style="display: none;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration Tab -->
+                <div id="configuration" class="tab-content">
+                    <!-- Health Monitoring Configuration -->
+                    <div class="test-panel">
+                        <div class="test-panel-header">
+                            <div class="panel-title">
+                                <i class="fas fa-heartbeat"></i>
+                                Health Monitoring Configuration
+                            </div>
+                            <div id="healthConfigStatus" class="test-status pending">Not Loaded</div>
+                        </div>
+                        <div class="test-panel-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">
+                                        <input type="checkbox" id="healthEnabled" onchange="updateHealthConfigStatus()">
+                                        Enable Health Monitoring
+                                    </label>
+                                    <small class="form-text">Automatically check server health periodically</small>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Check Interval (seconds)</label>
+                                    <input type="number" class="form-control" id="healthCheckInterval" min="10" value="60">
+                                    <small class="form-text">How often to check server health</small>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Stale Timeout (seconds)</label>
+                                    <input type="number" class="form-control" id="healthStaleTimeout" min="60" value="300">
+                                    <small class="form-text">Consider connection stale after this time</small>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Max Retry Attempts</label>
+                                    <input type="number" class="form-control" id="healthMaxRetry" min="1" max="10" value="3">
+                                    <small class="form-text">Maximum retry attempts for failed connections</small>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Retry Delay (seconds)</label>
+                                    <input type="number" class="form-control" id="healthRetryDelay" min="1" value="5">
+                                    <small class="form-text">Delay between retry attempts</small>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <button class="btn btn-primary" onclick="saveHealthConfig()">
+                                    <i class="fas fa-save"></i>
+                                    Save Health Configuration
+                                </button>
+                                <button class="btn btn-outline" onclick="loadHealthConfig()">
+                                    <i class="fas fa-sync"></i>
+                                    Reload
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Origin Configuration -->
+                    <div class="test-panel">
+                        <div class="test-panel-header">
+                            <div class="panel-title">
+                                <i class="fas fa-globe"></i>
+                                Origin Configuration
+                            </div>
+                            <div id="originConfigStatus" class="test-status pending">Not Loaded</div>
+                        </div>
+                        <div class="test-panel-body">
+                            <div class="form-group">
+                                <label class="form-label">Allowed Origins</label>
+                                <small class="form-text">List of allowed hostnames for CORS. Add origins without protocol (e.g., example.com)</small>
+                                <div id="allowedOriginsList" class="tags-container"></div>
+                                <div class="input-group" style="margin-top: 12px;">
+                                    <input type="text" class="form-control" id="newOrigin" placeholder="example.com or localhost">
+                                    <button class="btn btn-sm btn-primary" onclick="addOrigin()">
+                                        <i class="fas fa-plus"></i>
+                                        Add Origin
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Server Health Status -->
+                    <div class="test-panel">
+                        <div class="test-panel-header">
+                            <div class="panel-title">
+                                <i class="fas fa-heartbeat"></i>
+                                Server Health Status
+                            </div>
+                            <button class="btn btn-sm btn-outline" onclick="loadServerHealth()">
+                                <i class="fas fa-sync"></i>
+                                Refresh
+                            </button>
+                        </div>
+                        <div class="test-panel-body">
+                            <div id="serverHealthList"></div>
                         </div>
                     </div>
                 </div>

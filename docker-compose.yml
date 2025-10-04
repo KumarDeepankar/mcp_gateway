@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   mcp-server:
     build:
@@ -37,7 +35,10 @@ services:
     depends_on:
       - mcp-server
       - mcp-opensearch
-      - mcp-registry-discovery
+      - tools-gateway
+      - agentic-search
+    profiles:
+      - ngrok  # Only start when explicitly requested
 
   mcp-opensearch:
     build:
@@ -47,7 +48,7 @@ services:
     container_name: mcp-opensearch-server
     environment:
       - DOCKER_CONTAINER=true
-      - OPENSEARCH_HOST=host.docker.internal:9200
+      - OPENSEARCH_URL=http://host.docker.internal:9200
     ports:
       - "8001:8001"
     networks:
@@ -60,11 +61,11 @@ services:
     #   retries: 3
     #   start_period: 40s
 
-  mcp-registry-discovery:
+  tools-gateway:
     build:
-      context: ./mcp_registry_discovery
+      context: ./tools_gateway
       dockerfile: mcp_toolbox.dockerfile
-    container_name: mcp-registry-discovery
+    container_name: tools-gateway
     environment:
       - DOCKER_CONTAINER=true
       - HOST=0.0.0.0
@@ -81,7 +82,32 @@ services:
     #   retries: 3
     #   start_period: 40s
     volumes:
-      - ./mcp_registry_discovery/data:/app/data
+      - ./tools_gateway/data:/app/data
+
+  agentic-search:
+    build:
+      context: ./agentic_search
+      dockerfile: Dockerfile
+    container_name: agentic-search
+    environment:
+      - DOCKER_CONTAINER=true
+      - HOST=0.0.0.0
+      - PORT=8023
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - MCP_REGISTRY_URL=http://tools-gateway:8021
+    ports:
+      - "8023:8023"
+    networks:
+      - mcp-network
+    restart: unless-stopped
+    depends_on:
+      - tools-gateway
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8023/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 networks:
   mcp-network:

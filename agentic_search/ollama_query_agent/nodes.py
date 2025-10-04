@@ -436,10 +436,8 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
             state["current_turn_iteration_count"] = current_iteration
             return state
         except Exception as e:
-            logger.error(f"❌ Error generating summary: {str(e)}")
-            # Generate fallback response
-            final_response = generate_final_response_from_available_data(state)
-            state["final_response_content"] = final_response
+            logger.error(f"Error generating summary: {str(e)}")
+            state["final_response_content"] = generate_final_response_from_available_data(state)
             state["final_response_generated_flag"] = True
             state["current_turn_iteration_count"] = current_iteration
             return state
@@ -482,43 +480,18 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
         state["thinking_steps"].append("🤖 Consulting AI for planning decision...")
         state["thinking_steps"].append("📋 Analyzing query requirements vs available information")
 
-        system_prompt = """You are a search planning agent. Your job is to decide what to do next.
+        system_prompt = """You are a planning agent. Respond with valid JSON only.
 
 RULES:
-1. If you don't have enough information, create a plan to search for it
-2. If you have good information from tools, generate a final response
-3. Always respond with valid JSON - no extra text, no comments
+1. No information? Create a plan to gather it
+2. Have tool results? Generate final response
+3. Valid JSON only - no comments, no extra text
 
-RESPONSE FORMAT:
-You must respond with JSON in exactly this format:
+FORMAT:
+Planning: {"decision_type": "PLAN_AND_EXECUTE", "reasoning": "why", "plan": [...]}
+Response: {"decision_type": "GENERATE_RESPONSE", "reasoning": "why", "final_response": "<div>...</div>"}
 
-{
-    "decision_type": "PLAN_AND_EXECUTE",
-    "reasoning": "brief explanation",
-    "plan": [
-        {
-            "step_number": 1,
-            "step_type": "TOOL_CALL",
-            "description": "what this step does",
-            "tool_name": "tool_name_from_available_tools",
-            "tool_arguments": {"query": "search terms"}
-        }
-    ]
-}
-
-OR if you have enough information:
-
-{
-    "decision_type": "GENERATE_RESPONSE",
-    "reasoning": "brief explanation",
-    "final_response": "<div style='font-family: sans-serif; color: #333;'><h3>Title</h3><p>Your response here</p></div>"
-}
-
-IMPORTANT:
-- decision_type must be exactly "PLAN_AND_EXECUTE" or "GENERATE_RESPONSE"
-- Use tools before responding when possible
-- Make HTML responses professional with proper styling
-- Only respond with the JSON, nothing else"""
+Use tools before responding. Make HTML professional."""
 
         state["thinking_steps"].append("⏳ Generating planning decision (this may take a moment)...")
         response = await ollama_client.generate_response(prompt, system_prompt)
@@ -547,8 +520,8 @@ IMPORTANT:
                     decision_type = "GENERATE_RESPONSE"
                     state["thinking_steps"].append("🔧 Inferred decision_type as GENERATE_RESPONSE based on final_response presence")
                 else:
-                    decision_type = "PLAN_AND_EXECUTE"  # Default fallback
-                    state["thinking_steps"].append("🔧 Defaulting to PLAN_AND_EXECUTE as fallback")
+                    decision_type = "PLAN_AND_EXECUTE"
+                    state["thinking_steps"].append("🔧 Defaulting to PLAN_AND_EXECUTE")
 
             state["thinking_steps"].append(f"📋 Decision received: {decision_type}")
             state["thinking_steps"].append(f"💭 Reasoning: {reasoning}")
@@ -612,79 +585,46 @@ IMPORTANT:
                     state["thinking_steps"].append("❌ Decision to plan but no plan provided")
                     state["error_message"] = "Decision to plan but no plan provided"
             else:
-                state["thinking_steps"].append(f"❌ Unknown decision type received: {decision_type}")
-                state["thinking_steps"].append("🔧 Creating fallback plan to continue operation")
-
-                # Create a simple fallback plan to keep the agent working
-                fallback_step = PlanStep(
-                    step_number=1,
-                    step_type="REASONING_STEP",
-                    description="Generate response with available information",
-                    reasoning_content="Provide the best response possible with current information"
-                )
-                state["plan"] = [fallback_step]
+                state["thinking_steps"].append(f"❌ Unknown decision type: {decision_type}")
+                state["plan"] = [
+                    PlanStep(
+                        step_number=1,
+                        step_type="REASONING_STEP",
+                        description="Generate response with available information",
+                        reasoning_content="Provide best response with current data"
+                    )
+                ]
                 state["current_step_index"] = 0
-                state["thinking_steps"].append("▶️ Continuing with fallback reasoning step")
+                state["thinking_steps"].append("✅ Fallback plan created")
 
         except (json.JSONDecodeError, ValueError, KeyError) as e:
-            logger.error(f"Error parsing unified decision response: {e}")
-            logger.error(f"Raw response (first 500 chars): {response[:500]}")
-
-            # Additional debugging for character encoding issues
-            if hasattr(e, 'pos') and e.pos is not None:
-                error_pos = e.pos
-                logger.error(f"Error at position {error_pos}")
-                if error_pos < len(response):
-                    start_pos = max(0, error_pos - 20)
-                    end_pos = min(len(response), error_pos + 20)
-                    context = response[start_pos:end_pos]
-                    logger.error(f"Context around error: {repr(context)}")
-                    logger.error(f"Character at error position: {repr(response[error_pos])} (ord: {ord(response[error_pos])})")
-
-                    # Show hex dump of problematic area
-                    hex_context = ' '.join(f'{ord(c):02x}' for c in context)
-                    logger.error(f"Hex dump of context: {hex_context}")
+            logger.error(f"Error parsing decision response: {e}")
+            logger.error(f"Response preview: {response[:200]}")
 
             state["thinking_steps"].append(f"⚠️ Error parsing AI decision: {str(e)}")
-            state["thinking_steps"].append("📝 Raw response preview logged for debugging")
-            state["thinking_steps"].append("🔄 Creating structured plan as fallback")
+            state["thinking_steps"].append("🔄 Creating fallback plan")
 
-            # Create a structured fallback plan instead of just generating a response
-            # This ensures the agent continues working instead of stopping
-            fallback_plan = [
-                {
-                    "step_number": 1,
-                    "step_type": "TOOL_CALL",
-                    "description": "Search for information to answer the user's query",
-                    "tool_name": next((tool["name"] for tool in state.get("available_tools", [])
-                                     if tool["name"] in state.get("enabled_tools", [])), "opensearch_search"),
-                    "tool_arguments": {"query": state["input"], "size": 10}
-                },
-                {
-                    "step_number": 2,
-                    "step_type": "REASONING_STEP",
-                    "description": "Analyze search results and generate response",
-                    "reasoning_content": "Synthesize findings to answer the user's query"
-                }
-            ]
+            # Create fallback plan with available tools
+            first_tool = next((tool["name"] for tool in state.get("available_tools", [])
+                             if tool["name"] in state.get("enabled_tools", [])), "search_stories")
 
-            # Convert to PlanStep objects
-            plan_steps = []
-            for step_data in fallback_plan:
-                step = PlanStep(
-                    step_number=step_data["step_number"],
-                    step_type=step_data["step_type"],
-                    description=step_data["description"],
-                    tool_name=step_data.get("tool_name"),
-                    tool_arguments=step_data.get("tool_arguments"),
-                    reasoning_content=step_data.get("reasoning_content")
+            state["plan"] = [
+                PlanStep(
+                    step_number=1,
+                    step_type="TOOL_CALL",
+                    description="Search for information",
+                    tool_name=first_tool,
+                    tool_arguments={"query": state["input"], "size": 10}
+                ),
+                PlanStep(
+                    step_number=2,
+                    step_type="REASONING_STEP",
+                    description="Analyze results and generate response",
+                    reasoning_content="Synthesize findings"
                 )
-                plan_steps.append(step)
-
-            state["plan"] = plan_steps
+            ]
             state["current_step_index"] = 0
-            state["thinking_steps"].append(f"🔧 Created fallback plan with {len(plan_steps)} steps")
-            state["thinking_steps"].append("▶️ Continuing with structured plan execution")
+            state["thinking_steps"].append("✅ Fallback plan created")
 
     except Exception as e:
         logger.error(f"Error in unified planning decision: {e}")

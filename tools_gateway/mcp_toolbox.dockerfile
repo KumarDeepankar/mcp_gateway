@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 COPY services.py .
 COPY mcp_storage.py .
+COPY config.py .
 COPY test_mcp.html .
 COPY static/ ./static/
 

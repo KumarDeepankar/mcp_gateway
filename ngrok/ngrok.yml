@@ -8,6 +8,10 @@ authtoken: 32gC2d7iMt7zpEQgXLbwnyCnU6q_7ZvTLVs7RELZGG1E7WYDv
 web_addr: 0.0.0.0:4040
 
 # Tunnels configuration
+# NOTE: Free ngrok accounts support max 3 tunnels
+# mcp-opensearch is commented out by default (4th service)
+# Uncomment and comment another if you need it
+
 tunnels:
   mcp-server:
     proto: http
@@ -23,9 +27,15 @@ tunnels:
 
   mcp-registry:
     proto: http
-    addr: mcp-registry-discovery:8021
+    addr: tools-gateway:8021
     schemes: [https]
     inspect: true
+
+  # agentic-search:  # Disabled - Free tier allows only 3 tunnels
+  #   proto: http
+  #   addr: agentic-search:8023
+  #   schemes: [https]
+  #   inspect: true
 
 # Global tunnel options
 update_channel: stable

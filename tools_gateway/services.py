@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-MCP Toolbox Services - Compliant with 2025-06-18 Specification
+Tools Gateway Services - Compliant with 2025-06-18 Specification
 Provides connection management and discovery services with enhanced error handling
+Includes connection health monitoring and stale connection detection
 """
 import asyncio
 import aiohttp
@@ -9,11 +10,12 @@ import ssl
 import logging
 import json
 import uuid
-from typing import Dict, Any, List, Optional, AsyncGenerator
-from datetime import datetime
+from typing import Dict, Any, List, Optional, AsyncGenerator, Tuple
+from datetime import datetime, timedelta
 
 # No hardcoded server imports - fully user-driven
 from mcp_storage import mcp_storage_manager
+from config import config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,52 @@ logger = logging.getLogger(__name__)
 class ToolNotFoundException(Exception):
     """Custom exception for when a tool cannot be located."""
     pass
+
+
+class ServerHealthStatus:
+    """Tracks health status of a server connection"""
+    def __init__(self, server_url: str):
+        self.server_url = server_url
+        self.last_success: Optional[datetime] = None
+        self.last_check: Optional[datetime] = None
+        self.consecutive_failures = 0
+        self.is_healthy = True
+        self.last_error: Optional[str] = None
+
+    def mark_success(self):
+        """Mark a successful connection"""
+        self.last_success = datetime.now()
+        self.last_check = datetime.now()
+        self.consecutive_failures = 0
+        self.is_healthy = True
+        self.last_error = None
+
+    def mark_failure(self, error: str):
+        """Mark a failed connection"""
+        self.last_check = datetime.now()
+        self.consecutive_failures += 1
+        self.last_error = error
+        # Mark unhealthy after 3 consecutive failures
+        if self.consecutive_failures >= 3:
+            self.is_healthy = False
+
+    def is_stale(self, timeout_seconds: int) -> bool:
+        """Check if connection is stale"""
+        if not self.last_success:
+            return True
+        age = datetime.now() - self.last_success
+        return age.total_seconds() > timeout_seconds
+
+    def get_status(self) -> Dict[str, Any]:
+        """Get current health status"""
+        return {
+            "server_url": self.server_url,
+            "is_healthy": self.is_healthy,
+            "last_success": self.last_success.isoformat() if self.last_success else None,
+            "last_check": self.last_check.isoformat() if self.last_check else None,
+            "consecutive_failures": self.consecutive_failures,
+            "last_error": self.last_error
+        }
 
 
 class ConnectionManager:
@@ -36,11 +84,21 @@ class ConnectionManager:
                 ssl_context.check_hostname = False
                 ssl_context.verify_mode = ssl.CERT_NONE
 
-                # Create connector with SSL configuration
-                connector = aiohttp.TCPConnector(ssl=ssl_context)
+                # Create connector with SSL configuration and increased limits for large responses
+                connector = aiohttp.TCPConnector(
+                    ssl=ssl_context,
+                    limit=100,  # Connection pool size
+                    limit_per_host=30
+                )
 
-                self._session = aiohttp.ClientSession(connector=connector)
-                logger.info("New aiohttp.ClientSession created with SSL verification disabled.")
+                # Create session with increased read buffer size to handle large chunks
+                # max_line_size and max_field_size increased to handle large SSE data payloads
+                self._session = aiohttp.ClientSession(
+                    connector=connector,
+                    read_bufsize=2 * 1024 * 1024,  # 2MB read buffer (default is 64KB)
+                    timeout=aiohttp.ClientTimeout(total=120)
+                )
+                logger.info("New aiohttp.ClientSession created with SSL verification disabled and increased buffer limits.")
         return self._session
 
     async def forward_request_streaming(self, server_url: str, payload: Dict[str, Any]) -> AsyncGenerator[str, None]:
@@ -78,14 +136,32 @@ class ConnectionManager:
                 # Check if response is SSE format
                 content_type = response.headers.get('content-type', '')
                 if 'text/event-stream' in content_type:
-                    # Stream SSE events line by line
-                    async for line in response.content:
+                    # Stream SSE events in smaller chunks to avoid "Chunk too big" errors
+                    # Read in chunks instead of lines to handle large payloads
+                    CHUNK_SIZE = 8192  # 8KB chunks
+                    buffer = b''
+
+                    async for chunk in response.content.iter_chunked(CHUNK_SIZE):
+                        buffer += chunk
+
+                        # Process complete lines from buffer
+                        while b'\n' in buffer:
+                            line, buffer = buffer.split(b'\n', 1)
+                            try:
+                                line_str = line.decode('utf-8') + '\n'
+                                yield line_str
+                            except UnicodeDecodeError:
+                                logger.warning(f"Failed to decode line from {mcp_endpoint}")
+                                continue
+
+                    # Process any remaining data in buffer
+                    if buffer:
                         try:
-                            line_str = line.decode('utf-8')
-                            yield line_str
+                            line_str = buffer.decode('utf-8')
+                            if line_str:
+                                yield line_str
                         except UnicodeDecodeError:
-                            logger.warning(f"Failed to decode line from {mcp_endpoint}")
-                            continue
+                            logger.warning(f"Failed to decode final buffer from {mcp_endpoint}")
                 else:
                     # Handle JSON response by converting to SSE format
                     try:
@@ -134,7 +210,7 @@ class ConnectionManager:
 
 
 class DiscoveryService:
-    """Discovers and indexes tools from all registered MCP servers."""
+    """Discovers and indexes tools from all registered MCP servers with health monitoring."""
 
     def __init__(self, server_urls: List[str], connection_mgr: ConnectionManager, storage_manager=None):
         self.server_urls = server_urls
@@ -142,7 +218,124 @@ class DiscoveryService:
         self.storage_manager = storage_manager
         self.tool_to_server_map: Dict[str, str] = {}
         self._refresh_lock = asyncio.Lock()
+
+        # Health monitoring
+        self.server_health: Dict[str, ServerHealthStatus] = {}
+        self._health_check_task: Optional[asyncio.Task] = None
+
         logger.info(f"DiscoveryService initialized with {len(server_urls)} servers.")
+
+    async def start_health_monitoring(self):
+        """Start background health monitoring task"""
+        config = config_manager.get_connection_health_config()
+        if config.enabled and not self._health_check_task:
+            self._health_check_task = asyncio.create_task(self._health_check_loop())
+            logger.info("Started connection health monitoring")
+
+    async def stop_health_monitoring(self):
+        """Stop background health monitoring task"""
+        if self._health_check_task:
+            self._health_check_task.cancel()
+            try:
+                await self._health_check_task
+            except asyncio.CancelledError:
+                pass
+            self._health_check_task = None
+            logger.info("Stopped connection health monitoring")
+
+    async def _health_check_loop(self):
+        """Background loop for health checks - reads config on each iteration for dynamic updates"""
+        while True:
+            try:
+                # Read config on each iteration to support dynamic interval changes
+                config = config_manager.get_connection_health_config()
+                await asyncio.sleep(config.check_interval_seconds)
+                await self._perform_health_checks()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in health check loop: {e}")
+
+    async def _perform_health_checks(self):
+        """Perform health checks on all servers"""
+        config = config_manager.get_connection_health_config()
+
+        if self.storage_manager:
+            try:
+                stored_servers = await self.storage_manager.get_all_servers()
+                server_urls = [server.url for server in stored_servers.values()]
+            except Exception as e:
+                logger.error(f"Error loading servers for health check: {e}")
+                return
+        else:
+            server_urls = self.server_urls
+
+        for server_url in server_urls:
+            # Initialize health status if not exists
+            if server_url not in self.server_health:
+                self.server_health[server_url] = ServerHealthStatus(server_url)
+
+            health = self.server_health[server_url]
+
+            # Check if stale
+            if health.is_stale(config.stale_timeout_seconds):
+                logger.warning(f"Server {server_url} connection is stale, attempting refresh")
+                success = await self._check_server_health(server_url)
+                if success:
+                    health.mark_success()
+                    # Refresh tool index for this server
+                    await self.refresh_tool_index()
+                else:
+                    health.mark_failure("Health check failed")
+
+    async def _check_server_health(self, server_url: str) -> bool:
+        """Check health of a single server"""
+        session = await self.connection_manager._get_session()
+        mcp_endpoint = f"{server_url}/mcp"
+
+        headers = {
+            'Accept': 'application/json, text/event-stream',
+            'Content-Type': 'application/json',
+            'MCP-Protocol-Version': '2025-06-18'
+        }
+
+        # Simple ping with initialize
+        init_payload = {
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "id": "health-check",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "clientInfo": {
+                    "name": "tools-gateway-health-check",
+                    "version": "1.0.0"
+                }
+            }
+        }
+
+        try:
+            async with session.post(mcp_endpoint, json=init_payload, headers=headers, timeout=5) as response:
+                if response.status == 200:
+                    logger.debug(f"Health check passed for {server_url}")
+                    return True
+                else:
+                    logger.warning(f"Health check failed for {server_url}: status {response.status}")
+                    return False
+        except Exception as e:
+            logger.warning(f"Health check failed for {server_url}: {e}")
+            return False
+
+    def get_server_health_status(self, server_url: Optional[str] = None) -> Dict[str, Any]:
+        """Get health status for all servers or a specific server"""
+        if server_url:
+            if server_url in self.server_health:
+                return self.server_health[server_url].get_status()
+            return {"error": "Server not found"}
+
+        return {
+            url: health.get_status()
+            for url, health in self.server_health.items()
+        }
 
     async def refresh_tool_index(self):
         """
@@ -190,7 +383,12 @@ class DiscoveryService:
         """
         Fetches the tool list from a single MCP server.
         Enhanced with MCP 2025-06-18 specification compliance including proper session initialization.
+        Updates health status tracking.
         """
+        # Initialize health status if not exists
+        if server_url not in self.server_health:
+            self.server_health[server_url] = ServerHealthStatus(server_url)
+
         session = await self.connection_manager._get_session()
         mcp_endpoint = f"{server_url}/mcp"
 
@@ -259,6 +457,8 @@ class DiscoveryService:
                         data = await response.json()
                         tools = data.get("result", {}).get("tools", [])
                         logger.info(f"Successfully fetched {len(tools)} tools from {server_url} (JSON)")
+                        # Mark health success
+                        self.server_health[server_url].mark_success()
                         return server_url, tools
                     elif 'text/event-stream' in content_type:
                         # Parse SSE response for tools/list
@@ -276,14 +476,18 @@ class DiscoveryService:
                                 continue
 
                         logger.info(f"Successfully fetched {len(tools)} tools from {server_url} (SSE)")
+                        # Mark health success
+                        self.server_health[server_url].mark_success()
                         return server_url, tools
                     else:
                         logger.warning(f"Unexpected content type from {server_url}: {content_type}")
+                        self.server_health[server_url].mark_failure(f"Unexpected content type: {content_type}")
                         return server_url, None
                 else:
                     logger.warning(f"Failed to fetch tools from {server_url}. Status: {response.status}")
                     error_text = await response.text()
                     logger.debug(f"Error response from {server_url}: {error_text}")
+                    self.server_health[server_url].mark_failure(f"HTTP {response.status}")
                     return server_url, None
 
             # Step 4: Clean up session (optional, but good practice)
@@ -298,9 +502,11 @@ class DiscoveryService:
 
         except asyncio.TimeoutError:
             logger.warning(f"Timeout while fetching tools from {server_url}")
+            self.server_health[server_url].mark_failure("Timeout")
             return server_url, None
         except Exception as e:
             logger.error(f"Error connecting to {server_url} for discovery: {e}")
+            self.server_health[server_url].mark_failure(str(e))
             return server_url, None
 
     async def get_tool_location(self, tool_name: str) -> str:

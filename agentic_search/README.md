@@ -25,7 +25,7 @@ An AI-powered search agent using Ollama and MCP tools, built with LangGraph and 
 
 2. **MCP Registry Discovery**: Must be running on port 8021
    ```bash
-   cd ../mcp_registry_discovery
+   cd ../tools_gateway
    python main.py
    ```
 
@@ -49,7 +49,7 @@ chmod +x start.sh
    ollama serve
 
    # Terminal 2: Start MCP Registry Discovery
-   cd ../mcp_registry_discovery
+   cd ../tools_gateway
    python main.py
    ```
 

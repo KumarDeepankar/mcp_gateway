@@ -87,6 +87,3 @@ workflow.add_edge("execute_tool_step_node", "unified_planning_decision_node")
 
 # Compile the agent
 compiled_agent = workflow.compile(checkpointer=checkpointer)
-
-# Keep backward compatibility alias
-optimized_compiled_agent = compiled_agent

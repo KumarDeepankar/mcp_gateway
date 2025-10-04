@@ -1,0 +1,20 @@
+{
+  "connection_health": {
+    "enabled": true,
+    "check_interval_seconds": 60,
+    "stale_timeout_seconds": 300,
+    "max_retry_attempts": 3,
+    "retry_delay_seconds": 5
+  },
+  "origin": {
+    "allowed_origins": [
+      "localhost",
+      "127.0.0.1",
+      "0.0.0.0",
+      "example.com"
+    ],
+    "allow_ngrok": true,
+    "allow_https": true
+  },
+  "updated_at": "2025-10-03 15:51:07.264024"
+}

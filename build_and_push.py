@@ -15,10 +15,10 @@ SERVICES = [
         "image_name": f"{DOCKER_USERNAME}/agentic-assistant",
     },
     {
-        "name": "mcp-registry-discovery",
-        "path": "mcp_registry_discovery",
+        "name": "tools-gateway",
+        "path": "tools_gateway",
         "dockerfile": "mcp_toolbox.dockerfile",
-        "image_name": f"{DOCKER_USERNAME}/mcp-registry-discovery",
+        "image_name": f"{DOCKER_USERNAME}/tools-gateway",
     },
     {
         "name": "ngrok",

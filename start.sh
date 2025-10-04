@@ -12,7 +12,7 @@ echo "=================================="
 echo "Stopping existing containers..."
 docker-compose down > /dev/null 2>&1 || true
 
-# Start all services
+# Start all services (excluding ngrok by default)
 echo "Starting services..."
 docker-compose up -d
 
@@ -44,35 +44,26 @@ check_service() {
 # Check if MCP server is ready
 check_service "MCP Server" 8000
 
-# Check if ngrok is ready
-check_service "Ngrok" 4040
+# Check if OpenSearch MCP is ready
+check_service "OpenSearch MCP" 8001
 
-# Get the ngrok URL
-echo ""
-echo "🌐 Getting HTTPS endpoint..."
-sleep 2
+# Check if Tools Gateway is ready
+check_service "Tools Gateway" 8021
 
-NGROK_URL=$(curl -s http://localhost:4040/api/tunnels | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    tunnels = data.get('tunnels', [])
-    if tunnels:
-        print(tunnels[0]['public_url'])
-    else:
-        print('No tunnels found')
-except:
-    print('Error getting tunnel info')
-")
+# Check if Agentic Search is ready
+check_service "Agentic Search" 8023
 
 echo ""
 echo "🎉 MCP Gateway is running!"
 echo "========================="
-echo "📡 HTTPS Endpoint: $NGROK_URL"
-echo "🔧 Ngrok Dashboard: http://localhost:4040"
-echo "🏠 Local MCP Server: http://localhost:8000"
-echo "📊 Registry Discovery: http://localhost:8021"
+echo "🏠 MCP Server: http://localhost:8000"
+echo "🔍 OpenSearch MCP: http://localhost:8001"
+echo "🛠️  Tools Gateway: http://localhost:8021"
+echo "🤖 Agentic Search: http://localhost:8023"
+echo ""
+echo "ℹ️  Ngrok is NOT started (free tier limited to 3 tunnels)"
+echo "   To start ngrok: docker-compose --profile ngrok up -d ngrok"
 echo ""
 echo "💡 To stop services: ./stop.sh"
-echo "💡 To get URL again: ./get-url.sh"
+echo "💡 To view status: ./status.sh"
 echo "💡 To view logs: ./logs.sh"
