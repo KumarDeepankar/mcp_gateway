@@ -169,33 +169,6 @@
             color: #ffd700;
         }
 
-        .comparison-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            background: white;
-            border-radius: 10px;
-            overflow: hidden;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
-
-        .comparison-table th {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px;
-            text-align: left;
-            font-weight: 600;
-        }
-
-        .comparison-table td {
-            padding: 12px 15px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .comparison-table tr:nth-child(even) {
-            background-color: #f7fafc;
-        }
-
         .code-block {
             background: #2d3748;
             color: #e2e8f0;
@@ -220,12 +193,6 @@
             .section {
                 padding: 20px;
             }
-
-            .workflow-btn {
-                display: block;
-                margin: 10px auto;
-                width: 200px;
-            }
         }
     </style>
 </head>
@@ -233,37 +200,32 @@
     <div class="container">
         <div class="header">
             <h1>🤖 Agentic Search Agent</h1>
-            <p>LangGraph-based AI Search System with MCP Tools Integration</p>
+            <p>Simplified LangGraph-based AI Search System with MCP Tools Integration</p>
         </div>
 
         <div class="section">
             <h2>🏗️ Workflow Architecture</h2>
 
             <div class="diagram-container">
-                <h3>Optimized 5-Node Workflow (Removed Redundant Node)</h3>
+                <h3>Optimized 4-Node Workflow (Simplified & Efficient)</h3>
                 <div class="mermaid">
                     graph TD
                         A[🚀 START] --> B[initialize_search_node]
                         B --> C[discover_tools_node]
                         C --> D[unified_planning_decision_node]
 
-                        D --> E{Route After Unified Decision}
-                        E -->|Has Plan| F[prepare_next_step_node]
+                        D --> E{Route Decision}
+                        E -->|Has Remaining Steps| F[execute_tool_step_node]
                         E -->|Final Response Generated| G[🔚 END]
-                        E -->|Error| G
+                        E -->|Error or No Plan| G
 
-                        F --> H{Route After Step Preparation}
-                        H -->|TOOL_CALL or REASONING_STEP| I[execute_tool_step_node]
-                        H -->|Error/No Step| D
-
-                        I --> D
+                        F --> D
 
                         style A fill:#e1f5fe
                         style B fill:#f3e5f5
                         style C fill:#f3e5f5
                         style D fill:#ff6f00,color:#fff
-                        style F fill:#f3e5f5
-                        style I fill:#4caf50,color:#fff
+                        style F fill:#4caf50,color:#fff
                         style G fill:#ffebee
                 </div>
             </div>
@@ -277,9 +239,10 @@
                     <div class="purpose">Initialize search session and state</div>
                     <ul>
                         <li>Set up thinking steps array</li>
-                        <li>Initialize iteration counters (max: 5)</li>
-                        <li>Handle conversation history for followup queries</li>
-                        <li>Reset state flags</li>
+                        <li>Initialize iteration counters (max: 1)</li>
+                        <li>Load conversation history from checkpointer</li>
+                        <li>Auto-detect followup queries</li>
+                        <li>Reset execution state flags</li>
                     </ul>
                 </div>
 
@@ -294,39 +257,29 @@
                     </ul>
                 </div>
 
-
-                <div class="node-card">
-                    <h4>⚙️ prepare_next_step_node</h4>
-                    <div class="purpose">Prepare the next step for execution</div>
-                    <ul>
-                        <li>Get current step from plan</li>
-                        <li>Set current_step_to_execute</li>
-                        <li>Update step index</li>
-                        <li>Add progress to thinking steps</li>
-                    </ul>
-                </div>
-
-                <div class="node-card">
-                    <h4>🔧 execute_tool_step_node (OPTIMIZED)</h4>
-                    <div class="purpose">Execute MCP tool calls AND reasoning steps (consolidated)</div>
-                    <ul>
-                        <li>Handle TOOL_CALL: Call MCP tools via mcp_tool_client</li>
-                        <li>Handle REASONING_STEP: Execute reasoning and analysis</li>
-                        <li>Store execution/reasoning results</li>
-                        <li>Provide detailed progress updates</li>
-                        <li>Handle errors gracefully</li>
-                        <li>Progress to next step</li>
-                    </ul>
-                </div>
-
                 <div class="node-card">
                     <h4>🤔 unified_planning_decision_node</h4>
-                    <div class="purpose">Unified node for planning, decision-making, and response generation (Optimized)</div>
+                    <div class="purpose">Unified planning, decision-making, and response generation</div>
                     <ul>
-                        <li>Analyze current state and gathered information</li>
-                        <li>Decide between planning more steps or generating response</li>
-                        <li>Handle iteration limits (max: 5)</li>
-                        <li>Generate final response when sufficient data available</li>
+                        <li>Analyze current state and tool results</li>
+                        <li>Decide: PLAN_AND_EXECUTE or GENERATE_RESPONSE</li>
+                        <li>Create execution plan with TOOL_CALL steps</li>
+                        <li>Generate HTML-formatted final response</li>
+                        <li>Save conversation history (plain text)</li>
+                        <li>Handle iteration limits</li>
+                    </ul>
+                </div>
+
+                <div class="node-card">
+                    <h4>🔧 execute_tool_step_node</h4>
+                    <div class="purpose">Execute MCP tool calls from plan</div>
+                    <ul>
+                        <li>Get next step from plan using current_step_index</li>
+                        <li>Call MCP tools via mcp_tool_client</li>
+                        <li>Store execution results</li>
+                        <li>Provide detailed progress updates</li>
+                        <li>Handle errors gracefully</li>
+                        <li>Increment step index</li>
                     </ul>
                 </div>
 
@@ -335,37 +288,47 @@
 
         <div class="section">
             <h2>🏢 State Management</h2>
-            <h3>SearchAgentState Structure</h3>
+            <h3>SearchAgentState Structure (Simplified)</h3>
             <div class="code-block">
 {
     "input": str,                           # User query
-    "thinking_steps": List[str],            # Progress tracking
+    "conversation_id": str,                 # Session identifier
+    "conversation_history": List[Dict],     # Plain text history (query + response only)
+    "is_followup_query": bool,              # Auto-detected from history
+
+    "thinking_steps": List[str],            # Progress tracking for UI
     "available_tools": List[Dict],          # Tools from MCP registry
     "enabled_tools": List[str],             # User-selected tools
-    "plan": List[PlanStep],                 # Execution plan
+
+    "plan": List[PlanStep],                 # Execution plan (TOOL_CALL only)
     "current_step_index": int,              # Current step position
-    "current_step_to_execute": PlanStep,    # Active step
     "tool_execution_results": List[Dict],   # Tool call results
-    "search_results": List[Dict],           # Search/reasoning results
-    "conversation_history": List[Dict],     # Previous turns (last 10)
-    "final_response_content": str,          # Generated response
+
+    "final_response_content": str,          # Generated HTML response
     "final_response_generated_flag": bool,  # Completion flag
     "error_message": str,                   # Error tracking
+
     "current_turn_iteration_count": int,    # Iteration counter
-    "max_turn_iterations": int,             # Iteration limit (5)
-    "is_followup_query": bool              # Conversation context flag
+    "max_turn_iterations": int              # Iteration limit (1)
 }
             </div>
 
-            <h3>PlanStep Structure</h3>
+            <h3>PlanStep Structure (Simplified)</h3>
             <div class="code-block">
 {
     "step_number": int,
-    "step_type": str,                       # "TOOL_CALL" or "REASONING_STEP"
+    "step_type": "TOOL_CALL",               # Only TOOL_CALL supported
     "description": str,
-    "tool_name": str,                       # For TOOL_CALL steps
-    "tool_arguments": Dict,                 # Tool parameters
-    "reasoning_content": str                # For REASONING_STEP steps
+    "tool_name": str,                       # Required
+    "tool_arguments": Dict                  # Tool parameters
+}
+            </div>
+
+            <h3>ConversationTurn Structure (Minimal)</h3>
+            <div class="code-block">
+{
+    "query": str,                           # User query
+    "response": str                         # Plain text response (HTML stripped)
 }
             </div>
         </div>
@@ -374,11 +337,12 @@
             <h2>🌟 Key Features</h2>
             <div class="feature-grid">
                 <div class="feature-card">
-                    <h4>🔄 Streaming & Real-time Updates</h4>
+                    <h4>🔄 Conversation Management</h4>
                     <ul>
-                        <li>Live thinking steps before final response</li>
-                        <li>Chain visualization with completion indicators</li>
-                        <li>Progress tracking throughout execution</li>
+                        <li>Automatic conversation history persistence</li>
+                        <li>All queries are followups by default (same session)</li>
+                        <li>Plain text storage, HTML display</li>
+                        <li>Keeps last 10 conversation turns</li>
                     </ul>
                 </div>
 
@@ -392,29 +356,30 @@
                 </div>
 
                 <div class="feature-card">
-                    <h4>💬 Conversation Context</h4>
+                    <h4>⚡ Performance Optimizations</h4>
                     <ul>
-                        <li>Maintains conversation history (last 10 turns)</li>
-                        <li>Supports followup queries with context</li>
-                        <li>Stores tool results for reference</li>
+                        <li>Removed redundant nodes (5 → 4 nodes)</li>
+                        <li>Removed search_results state field</li>
+                        <li>Removed REASONING_STEP step type</li>
+                        <li>Cleaner state management</li>
                     </ul>
                 </div>
 
                 <div class="feature-card">
                     <h4>🔒 Safety & Limits</h4>
                     <ul>
-                        <li>Maximum iteration limit (5) prevents infinite loops</li>
+                        <li>Maximum iteration limit prevents infinite loops</li>
                         <li>Graceful fallback response generation</li>
                         <li>Error state handling at each node</li>
                     </ul>
                 </div>
 
                 <div class="feature-card">
-                    <h4>⚡ Performance Optimizations</h4>
+                    <h4>💾 State Persistence</h4>
                     <ul>
-                        <li>Optimized 2-LLM-call workflow reduces latency</li>
-                        <li>JSON parsing with fallback mechanisms</li>
-                        <li>Efficient state management and serialization</li>
+                        <li>LangGraph MemorySaver checkpointer</li>
+                        <li>Thread-based conversation tracking</li>
+                        <li>Automatic state restoration</li>
                     </ul>
                 </div>
 
@@ -430,41 +395,41 @@
         </div>
 
         <div class="section">
-            <h2>📊 Workflow Features</h2>
+            <h2>📊 Simplification Benefits</h2>
             <div class="feature-grid">
                 <div class="feature-card">
-                    <h4>⚡ Performance Optimized</h4>
+                    <h4>⚡ Faster Execution</h4>
                     <ul>
-                        <li>Exactly 2 LLM calls maximum</li>
-                        <li>Streamlined execution flow</li>
-                        <li>Reduced latency</li>
+                        <li>Reduced from 5 to 4 nodes</li>
+                        <li>Eliminated prepare_next_step_node</li>
+                        <li>Direct execution from planning node</li>
                     </ul>
                 </div>
 
                 <div class="feature-card">
-                    <h4>🧠 Intelligent Decision Making</h4>
+                    <h4>🧠 Cleaner State</h4>
                     <ul>
-                        <li>Unified planning and decision node</li>
-                        <li>Dynamic plan generation</li>
-                        <li>Context-aware responses</li>
+                        <li>Removed search_results (redundant)</li>
+                        <li>Removed current_step_to_execute</li>
+                        <li>Removed REASONING_STEP complexity</li>
                     </ul>
                 </div>
 
                 <div class="feature-card">
-                    <h4>🔄 Efficient Loop Handling</h4>
+                    <h4>🔄 Better Conversation Flow</h4>
                     <ul>
-                        <li>Iteration limit (5) prevents infinite loops</li>
-                        <li>Smart step preparation</li>
-                        <li>Graceful fallback responses</li>
+                        <li>HTML for user display</li>
+                        <li>Plain text for history context</li>
+                        <li>Automatic followup detection</li>
                     </ul>
                 </div>
 
                 <div class="feature-card">
-                    <h4>🎯 Tool-Focused Search</h4>
+                    <h4>🎯 Focused Functionality</h4>
                     <ul>
-                        <li>Prioritizes tool usage for facts</li>
-                        <li>MCP tool integration</li>
-                        <li>Real-time tool execution</li>
+                        <li>Tool-based information gathering</li>
+                        <li>AI generates responses when ready</li>
+                        <li>No redundant reasoning steps</li>
                     </ul>
                 </div>
             </div>
@@ -491,12 +456,6 @@
                 padding: 20
             }
         });
-
-        // Function kept for potential future use but currently not needed
-        function showWorkflow(type) {
-            // Only one workflow now, so this function is simplified
-            mermaid.init();
-        }
 
         // Auto-render on page load
         document.addEventListener('DOMContentLoaded', function() {

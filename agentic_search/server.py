@@ -75,30 +75,36 @@ async def search_interaction_stream(session_id: str, query: str, enabled_tools: 
     """Stream search agent interaction"""
 
     try:
-        # For followup queries, use the same thread ID to maintain context
-        # For new queries, use a unique thread ID
-        import time
-        if is_followup:
-            thread_id = session_id  # Use session ID to maintain conversation context
-        else:
-            thread_id = f"{session_id}_search_{int(time.time()*1000)}"
-
+        # Always use session_id as thread_id to maintain conversation context
+        # User will start a new conversation (new session_id) when they want a fresh thread
+        thread_id = session_id
         config = {"configurable": {"thread_id": thread_id}}
+
+        # Try to retrieve conversation history from checkpointer
+        conversation_history = []
+        try:
+            state_snapshot = await search_compiled_agent.aget_state(config)
+            if state_snapshot and state_snapshot.values:
+                conversation_history = state_snapshot.values.get("conversation_history", [])
+                print(f"[DEBUG] Retrieved conversation_history: {len(conversation_history)} turns")
+        except Exception as e:
+            # First query in this session - no history available yet
+            print(f"[DEBUG] Error retrieving state: {e}")
+            pass
+
         inputs = {
             "input": query,
             "conversation_id": session_id,
             "enabled_tools": enabled_tools or [],
-            "is_followup_query": is_followup,
-            "conversation_history": [],  # Will be populated from state if available
+            "is_followup_query": bool(conversation_history),  # Auto-detect based on history
+            "conversation_history": conversation_history,
         }
 
         relevant_node_names = [
             "initialize_search_node",
             "discover_tools_node",
             "unified_planning_decision_node",
-            "prepare_next_step_node",
-            "execute_tool_step_node",
-            "execute_unified_reasoning_and_response_node"
+            "execute_tool_step_node"
         ]
 
         final_response_started = False
@@ -173,6 +179,15 @@ async def search_interaction_stream(session_id: str, query: str, enabled_tools: 
         except Exception as e_main_stream:
             traceback.print_exc()
             yield f"ERROR:A fatal error occurred in the search agent stream: {str(e_main_stream)}\n"
+
+        # After streaming completes, verify the state was saved
+        try:
+            final_state = await search_compiled_agent.aget_state(config)
+            if final_state and final_state.values:
+                conv_hist = final_state.values.get("conversation_history", [])
+                print(f"[DEBUG] After stream complete - conversation_history has {len(conv_hist)} turns")
+        except Exception as e:
+            print(f"[DEBUG] Error checking final state: {e}")
 
     except Exception as e:
         traceback.print_exc()

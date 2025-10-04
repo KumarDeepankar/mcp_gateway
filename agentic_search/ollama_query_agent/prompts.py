@@ -43,10 +43,8 @@ def format_conversation_context(conversation_history: List[Dict[str, Any]], max_
 
 def create_unified_planning_decision_prompt(
     user_query: str,
-    search_results: List[Dict[str, Any]],
     tool_results: List[Dict[str, Any]],
-    available_tools: List[Dict[str, Any]],
-    enabled_tools: List[str],
+    enabled_tools: List[Dict[str, Any]],
     executed_steps: List[Dict[str, Any]] = None,
     conversation_history: List[Dict[str, Any]] = None,
     current_plan: List[Dict[str, Any]] = None
@@ -58,7 +56,6 @@ def create_unified_planning_decision_prompt(
 
     # Build state context
     state_info = {
-        "search_results_count": len(search_results),
         "tool_results_count": len(tool_results)
     }
 
@@ -77,14 +74,14 @@ def create_unified_planning_decision_prompt(
                 plan_dicts.append(step)
         state_info["remaining_steps"] = plan_dicts[:3]  # Show next 3 steps
 
-    # Tool information
+    # Tool information (already filtered to enabled tools only)
     enabled_tool_info = [
         {
             "name": tool.get("name"),
             "description": tool.get("description", ""),
             "input_schema": tool.get("inputSchema", {})
         }
-        for tool in available_tools if tool.get("name") in enabled_tools
+        for tool in enabled_tools
     ]
 
     return f"""You are a planning and decision agent. Decide the next action to take.
@@ -99,31 +96,34 @@ Available Tools:
 {json.dumps(enabled_tool_info, indent=2)}
 
 DECISION TYPES:
-1. "PLAN_AND_EXECUTE" - Create plan with tools to gather information
+1. "PLAN_AND_EXECUTE" - Create plan with TOOL_CALL steps only
 2. "GENERATE_RESPONSE" - Generate final response when you have sufficient information
 
-REQUIREMENTS:
+CRITICAL REQUIREMENTS:
 - Respond with valid JSON only
+- ONLY use TOOL_CALL step type (NO reasoning steps, NO other types)
+- Every step MUST have a tool_name from the available tools list
 - Use tools before generating final response when possible
 - Only choose GENERATE_RESPONSE when you have tool results that answer the query
 
-Response format for planning:
+Response format for planning (ONLY TOOL_CALL steps allowed):
 {{
     "decision_type": "PLAN_AND_EXECUTE",
-    "reasoning": "Brief explanation",
+    "reasoning": "Need to gather information using tools",
     "plan": [
         {{
             "step_number": 1,
             "step_type": "TOOL_CALL",
             "description": "Search for information",
-            "tool_name": "tool_name",
+            "tool_name": "search_stories",
             "tool_arguments": {{"query": "search terms", "size": 10}}
         }},
         {{
             "step_number": 2,
-            "step_type": "REASONING_STEP",
-            "description": "Analyze results",
-            "reasoning_content": "Synthesize findings"
+            "step_type": "TOOL_CALL",
+            "description": "Fetch additional data",
+            "tool_name": "fetch_news",
+            "tool_arguments": {{"topic": "AI"}}
         }}
     ]
 }}
@@ -140,7 +140,6 @@ Generate valid JSON:"""
 
 def create_reasoning_response_prompt(
         user_query: str,
-        search_results: List[Dict[str, Any]],
         tool_results: List[Dict[str, Any]],
         conversation_history: List[Dict[str, Any]] = None,
         current_step_description: str = None,
@@ -153,7 +152,6 @@ def create_reasoning_response_prompt(
 
     # Prepare data context
     data_context = {
-        "search_results": search_results[:5] if search_results else [],
         "tool_results": tool_results[:5] if tool_results else []
     }
 
@@ -172,7 +170,7 @@ Data:
 {json.dumps(data_context, indent=2)}
 
 REQUIREMENTS:
-- Base response ONLY on tool results, search results, and conversation context
+- Base response ONLY on tool results and conversation context
 - Do NOT add external knowledge or assumptions
 - If information is incomplete, state what is missing
 - Use HTML formatting for response
@@ -188,25 +186,3 @@ HTML Response Format:
 </div>
 
 Generate HTML response based on the data above:"""
-
-
-def create_search_expansion_prompt(original_query: str) -> str:
-    """Create a prompt for expanding search queries"""
-    return f"""Expand this search query into 2-3 variations for comprehensive coverage.
-
-Original Query: "{original_query}"
-
-Strategies:
-- Use synonyms and alternative terminology
-- Add different perspectives (industry, academic, consumer)
-- Include temporal aspects (recent, trends, future)
-- Vary technical depth (overview vs detailed)
-
-Return as JSON array:
-["query1", "query2", "query3"]
-
-Examples:
-Original: "AI healthcare"
-Result: ["artificial intelligence medical diagnosis 2024", "AI healthcare implementation challenges", "machine learning patient outcomes"]
-
-Create expanded queries:"""

@@ -5,7 +5,6 @@ from .state_definition import SearchAgentState
 from .nodes import (
     initialize_search_node,
     discover_tools_node,
-    prepare_next_step_node,
     execute_tool_step_node,
     unified_planning_decision_node
 )
@@ -15,35 +14,17 @@ from .nodes import (
 
 def route_after_unified_decision(state: SearchAgentState) -> str:
     """Route after unified planning and decision"""
-    if state.get("error_message"):
+    if state.get("error_message") or state.get("final_response_generated_flag"):
         return "__end__"
 
-    if state.get("final_response_generated_flag"):
-        return "__end__"
-
-    # If we have a plan, prepare the next step
+    # If we have remaining steps in plan, execute next step
     plan = state.get("plan", [])
-    if plan:
-        return "prepare_next_step_node"
-    else:
-        return "__end__"
+    current_index = state.get("current_step_index", 0)
 
-
-def route_after_step_preparation(state: SearchAgentState) -> str:
-    """Route after preparing the next step"""
-    if state.get("error_message"):
-        return "unified_planning_decision_node"
-
-    current_step = state.get("current_step_to_execute")
-
-    if not current_step:
-        return "unified_planning_decision_node"
-
-    # Both tool calls and reasoning steps are handled by execute_tool_step_node
-    if current_step.step_type in ["TOOL_CALL", "REASONING_STEP"]:
+    if plan and current_index < len(plan):
         return "execute_tool_step_node"
     else:
-        return "unified_planning_decision_node"
+        return "__end__"
 
 
 # --- Graph Definition ---
@@ -54,7 +35,6 @@ workflow = StateGraph(SearchAgentState)
 workflow.add_node("initialize_search_node", initialize_search_node)
 workflow.add_node("discover_tools_node", discover_tools_node)
 workflow.add_node("unified_planning_decision_node", unified_planning_decision_node)
-workflow.add_node("prepare_next_step_node", prepare_next_step_node)
 workflow.add_node("execute_tool_step_node", execute_tool_step_node)
 
 # Define edges
@@ -67,22 +47,12 @@ workflow.add_conditional_edges(
     "unified_planning_decision_node",
     route_after_unified_decision,
     {
-        "prepare_next_step_node": "prepare_next_step_node",
+        "execute_tool_step_node": "execute_tool_step_node",
         "__end__": END
     }
 )
 
-# Route after step preparation
-workflow.add_conditional_edges(
-    "prepare_next_step_node",
-    route_after_step_preparation,
-    {
-        "execute_tool_step_node": "execute_tool_step_node",
-        "unified_planning_decision_node": "unified_planning_decision_node"
-    }
-)
-
-# After execution, always go back to unified decision node
+# After execution, go back to unified decision node
 workflow.add_edge("execute_tool_step_node", "unified_planning_decision_node")
 
 # Compile the agent

@@ -2,6 +2,7 @@ import json
 import logging
 import re
 from typing import Dict, Any, List
+from datetime import datetime
 from .state_definition import SearchAgentState, PlanStep
 from .ollama_client import ollama_client
 from .mcp_tool_client import mcp_tool_client
@@ -11,6 +12,37 @@ from .prompts import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def strip_html_to_text(html_content: str) -> str:
+    """Convert HTML response to plain text for storage"""
+    # Remove HTML tags
+    text = re.sub(r'<[^>]+>', '', html_content)
+    # Decode HTML entities
+    text = text.replace('&nbsp;', ' ').replace('&quot;', '"').replace('&amp;', '&')
+    text = text.replace('&lt;', '<').replace('&gt;', '>')
+    # Clean up multiple spaces and newlines
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    text = re.sub(r' +', ' ', text)
+    return text.strip()
+
+
+def save_conversation_turn(state: SearchAgentState, response: str) -> None:
+    """Save a conversation turn to history - only user query and plain text response"""
+    # Convert HTML response to plain text for storage
+    plain_text_response = strip_html_to_text(response)
+
+    new_turn = {
+        "query": state["input"],
+        "response": plain_text_response
+    }
+
+    if "conversation_history" not in state:
+        state["conversation_history"] = []
+    state["conversation_history"].append(new_turn)
+    state["conversation_history"] = state["conversation_history"][-10:]  # Keep last 10 turns
+
+    print(f"[DEBUG] Saved conversation turn. Total history: {len(state['conversation_history'])} turns")
 
 
 def clean_json_response(response: str) -> str:
@@ -197,7 +229,6 @@ async def initialize_search_node(state: SearchAgentState) -> SearchAgentState:
     state["current_step_index"] = 0
     state["final_response_generated_flag"] = False
     state["final_response_content"] = None
-    state["search_results"] = []
     state["tool_execution_results"] = []
     state["error_message"] = None
 
@@ -227,6 +258,10 @@ async def initialize_search_node(state: SearchAgentState) -> SearchAgentState:
 
     state["thinking_steps"].append(f"⚙️ Session config: Max iterations = {state['max_turn_iterations']}")
     state["thinking_steps"].append("✅ Search session initialized successfully")
+
+    print(f"[DEBUG initialize_search_node] conversation_history: {state['conversation_history']}")
+    print(f"[DEBUG initialize_search_node] is_followup_query: {state['is_followup_query']}")
+    print(f"[DEBUG initialize_search_node] conversation_id: {state.get('conversation_id')}")
 
     return state
 
@@ -272,124 +307,50 @@ async def discover_tools_node(state: SearchAgentState) -> SearchAgentState:
     return state
 
 
-async def prepare_next_step_node(state: SearchAgentState) -> SearchAgentState:
-    """Prepare the next step for execution"""
+async def execute_tool_step_node(state: SearchAgentState) -> SearchAgentState:
+    """Execute the next tool call step from the plan"""
     plan = state.get("plan", [])
     current_index = state.get("current_step_index", 0)
 
-    state["thinking_steps"].append("⚙️ Preparing next execution step...")
-    state["thinking_steps"].append(f"📋 Plan status: {current_index}/{len(plan)} steps completed")
-
-    if current_index < len(plan):
-        current_step = plan[current_index]
-        state["current_step_to_execute"] = current_step
-
-        state["thinking_steps"].append(f"▶️ Next step {current_index + 1}/{len(plan)}: {current_step.description}")
-        state["thinking_steps"].append(f"🎯 Step type: {current_step.step_type}")
-
-        if current_step.step_type == "TOOL_CALL":
-            state["thinking_steps"].append(f"🔧 Tool to execute: {current_step.tool_name}")
-            if current_step.tool_arguments:
-                arg_count = len(current_step.tool_arguments)
-                state["thinking_steps"].append(f"📋 Tool has {arg_count} argument{'s' if arg_count != 1 else ''}")
-        elif current_step.step_type == "REASONING_STEP":
-            state["thinking_steps"].append("🧠 Reasoning step - will analyze current information")
-
-        state["thinking_steps"].append("✅ Step preparation complete - ready for execution")
-    else:
-        # No more steps, move to final response
-        state["current_step_to_execute"] = None
-        state["thinking_steps"].append("🏁 All planned steps completed")
-        state["thinking_steps"].append("📝 Moving to final response generation")
-
-    return state
-
-
-async def execute_tool_step_node(state: SearchAgentState) -> SearchAgentState:
-    """Execute a tool call step with integrated reasoning"""
-    current_step = state.get("current_step_to_execute")
-
-    if not current_step:
-        state["error_message"] = "No current step to execute"
+    if current_index >= len(plan):
+        state["error_message"] = "No more steps to execute"
         return state
 
+    current_step = plan[current_index]
+
     try:
-        if current_step.step_type == "TOOL_CALL":
-            # Execute tool call
-            state["thinking_steps"].append(f"🔧 Executing tool: {current_step.tool_name}")
+        # Execute tool call
+        state["thinking_steps"].append(f"🔧 Executing step {current_index + 1}/{len(plan)}: {current_step.tool_name}")
 
-            # Add argument details if available
-            if current_step.tool_arguments:
-                arg_summary = ", ".join([f"{k}={str(v)[:50]}..." if len(str(v)) > 50 else f"{k}={v}"
-                                       for k, v in current_step.tool_arguments.items()])
-                state["thinking_steps"].append(f"📋 Tool arguments: {arg_summary}")
+        # Add argument details if available
+        if current_step.tool_arguments:
+            arg_summary = ", ".join([f"{k}={str(v)[:50]}..." if len(str(v)) > 50 else f"{k}={v}"
+                                   for k, v in current_step.tool_arguments.items()])
+            state["thinking_steps"].append(f"📋 Arguments: {arg_summary}")
 
-            # Call the tool via MCP
-            state["thinking_steps"].append(f"📡 Calling MCP service for {current_step.tool_name}")
-            result = await mcp_tool_client.call_tool(
-                current_step.tool_name,
-                current_step.tool_arguments or {}
-            )
+        # Call the tool via MCP
+        result = await mcp_tool_client.call_tool(
+            current_step.tool_name,
+            current_step.tool_arguments or {}
+        )
 
-            # Store the result
-            execution_result = {
-                "step_number": current_step.step_number,
-                "tool_name": current_step.tool_name,
-                "arguments": current_step.tool_arguments,
-                "result": result
-            }
+        # Store the result
+        execution_result = {
+            "step_number": current_step.step_number,
+            "tool_name": current_step.tool_name,
+            "arguments": current_step.tool_arguments,
+            "result": result
+        }
 
-            state["tool_execution_results"].append(execution_result)
+        state["tool_execution_results"].append(execution_result)
 
-            # Add result summary
-            result_summary = str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
-            state["thinking_steps"].append(f"✅ Tool {current_step.tool_name} executed successfully")
-            state["thinking_steps"].append(f"📊 Result summary: {result_summary}")
-
-        elif current_step.step_type == "REASONING_STEP":
-            # Execute reasoning step
-            state["thinking_steps"].append(f"🧠 Performing reasoning: {current_step.description}")
-
-            # Create context for reasoning
-            context = {
-                "user_query": state["input"],
-                "tool_results": state.get("tool_execution_results", []),
-                "search_results": state.get("search_results", []),
-                "thinking_steps": state.get("thinking_steps", [])
-            }
-
-            # Get reasoning from Ollama
-            prompt = create_reasoning_response_prompt(
-                user_query=state["input"],
-                search_results=state.get("search_results", []),
-                tool_results=state.get("tool_execution_results", []),
-                conversation_history=state.get("conversation_history", []),
-                current_step_description=current_step.reasoning_content or current_step.description,
-                additional_context=context
-            )
-
-            reasoning_result = await ollama_client.generate_response(prompt)
-
-            # Store reasoning result
-            reasoning_entry = {
-                "step_number": current_step.step_number,
-                "reasoning_task": current_step.description,
-                "analysis": reasoning_result
-            }
-
-            state["search_results"].append(reasoning_entry)
-            state["thinking_steps"].append(f"🧠 Reasoning step completed")
-
-            # Add analysis summary
-            analysis_preview = reasoning_result[:150] + "..." if len(reasoning_result) > 150 else reasoning_result
-            state["thinking_steps"].append(f"💭 Analysis preview: {analysis_preview}")
-
-        else:
-            state["error_message"] = f"Unknown step type: {current_step.step_type}"
-            return state
+        # Add result summary
+        result_summary = str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
+        state["thinking_steps"].append(f"✅ Tool executed successfully")
+        state["thinking_steps"].append(f"📊 Result: {result_summary}")
 
         # Move to next step
-        state["current_step_index"] = state.get("current_step_index", 0) + 1
+        state["current_step_index"] = current_index + 1
 
     except Exception as e:
         logger.error(f"Error executing step: {e}")
@@ -412,9 +373,7 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
 
     # Show current state for transparency
     tool_results_count = len(state.get("tool_execution_results", []))
-    search_results_count = len(state.get("search_results", []))
     state["thinking_steps"].append(f"🔧 Tool executions completed: {tool_results_count}")
-    state["thinking_steps"].append(f"🧠 Reasoning steps completed: {search_results_count}")
 
     if current_iteration > max_iterations:
         logger.info(f"⏰ Reached iteration limit ({max_iterations})")
@@ -425,7 +384,6 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
             # Try to generate final response using existing prompt
             prompt = create_reasoning_response_prompt(
                 user_query=state["input"],
-                search_results=state.get("search_results", []),
                 tool_results=state.get("tool_execution_results", []),
                 conversation_history=state.get("conversation_history", [])
             )
@@ -434,12 +392,21 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
             state["final_response_content"] = final_response
             state["final_response_generated_flag"] = True
             state["current_turn_iteration_count"] = current_iteration
+
+            # Save conversation history
+            save_conversation_turn(state, final_response)
+
             return state
         except Exception as e:
             logger.error(f"Error generating summary: {str(e)}")
-            state["final_response_content"] = generate_final_response_from_available_data(state)
+            final_response = generate_final_response_from_available_data(state)
+            state["final_response_content"] = final_response
             state["final_response_generated_flag"] = True
             state["current_turn_iteration_count"] = current_iteration
+
+            # Save conversation history
+            save_conversation_turn(state, final_response)
+
             return state
 
     try:
@@ -464,13 +431,23 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
             else:  # Already a dict
                 serializable_plan.append(step)
 
+        # Filter to only enabled tools for planning
+        enabled_tool_names = state.get("enabled_tools", [])
+        all_tools = state.get("available_tools", [])
+        enabled_tools_only = [
+            tool for tool in all_tools
+            if tool.get("name") in enabled_tool_names
+        ]
+
+        print(f"[DEBUG] Total available tools: {len(all_tools)}")
+        print(f"[DEBUG] User-enabled tools: {enabled_tool_names}")
+        print(f"[DEBUG] Passing {len(enabled_tools_only)} tools to LLM for planning")
+
         # Create unified prompt
         prompt = create_unified_planning_decision_prompt(
             user_query=state["input"],
-            search_results=state.get("search_results", []),
             tool_results=state.get("tool_execution_results", []),
-            available_tools=state.get("available_tools", []),
-            enabled_tools=state.get("enabled_tools", []),
+            enabled_tools=enabled_tools_only,
             executed_steps=executed_steps,
             conversation_history=state.get("conversation_history", []),
             current_plan=serializable_plan
@@ -482,16 +459,17 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
 
         system_prompt = """You are a planning agent. Respond with valid JSON only.
 
-RULES:
-1. No information? Create a plan to gather it
-2. Have tool results? Generate final response
+CRITICAL RULES:
+1. No information? Create a plan with TOOL_CALL steps ONLY
+2. Have tool results? Generate final HTML response
 3. Valid JSON only - no comments, no extra text
+4. NEVER use "REASONING_STEP" - ONLY "TOOL_CALL" with a tool_name
 
 FORMAT:
-Planning: {"decision_type": "PLAN_AND_EXECUTE", "reasoning": "why", "plan": [...]}
+Planning: {"decision_type": "PLAN_AND_EXECUTE", "reasoning": "why", "plan": [{"step_number": 1, "step_type": "TOOL_CALL", "tool_name": "search_stories", "description": "...", "tool_arguments": {...}}]}
 Response: {"decision_type": "GENERATE_RESPONSE", "reasoning": "why", "final_response": "<div>...</div>"}
 
-Use tools before responding. Make HTML professional."""
+Every plan step MUST have "step_type": "TOOL_CALL" and a valid "tool_name"."""
 
         state["thinking_steps"].append("⏳ Generating planning decision (this may take a moment)...")
         response = await ollama_client.generate_response(prompt, system_prompt)
@@ -538,19 +516,8 @@ Use tools before responding. Make HTML professional."""
                 state["thinking_steps"].append("✅ Final response generated successfully")
                 state["thinking_steps"].append("💾 Saving conversation to history")
 
-                # Store conversation history
-                from datetime import datetime
-                new_turn = {
-                    "query": state["input"],
-                    "response": final_response,
-                    "timestamp": datetime.now().isoformat(),
-                    "tool_results": state.get("tool_execution_results", [])
-                }
-
-                if "conversation_history" not in state:
-                    state["conversation_history"] = []
-                state["conversation_history"].append(new_turn)
-                state["conversation_history"] = state["conversation_history"][-10:]
+                # Save conversation history using helper function
+                save_conversation_turn(state, final_response)
 
             elif decision_type in ["PLAN_AND_EXECUTE", "EXECUTE_NEXT_STEP"]:
                 # Update plan
@@ -604,27 +571,26 @@ Use tools before responding. Make HTML professional."""
             state["thinking_steps"].append(f"⚠️ Error parsing AI decision: {str(e)}")
             state["thinking_steps"].append("🔄 Creating fallback plan")
 
-            # Create fallback plan with available tools
+            # Create fallback plan with available tools (TOOL_CALL only)
             first_tool = next((tool["name"] for tool in state.get("available_tools", [])
-                             if tool["name"] in state.get("enabled_tools", [])), "search_stories")
+                             if tool["name"] in state.get("enabled_tools", [])), None)
 
-            state["plan"] = [
-                PlanStep(
-                    step_number=1,
-                    step_type="TOOL_CALL",
-                    description="Search for information",
-                    tool_name=first_tool,
-                    tool_arguments={"query": state["input"], "size": 10}
-                ),
-                PlanStep(
-                    step_number=2,
-                    step_type="REASONING_STEP",
-                    description="Analyze results and generate response",
-                    reasoning_content="Synthesize findings"
-                )
-            ]
-            state["current_step_index"] = 0
-            state["thinking_steps"].append("✅ Fallback plan created")
+            if first_tool:
+                state["plan"] = [
+                    PlanStep(
+                        step_number=1,
+                        step_type="TOOL_CALL",
+                        description="Search for information",
+                        tool_name=first_tool,
+                        tool_arguments={"query": state["input"], "size": 10}
+                    )
+                ]
+                state["current_step_index"] = 0
+                state["thinking_steps"].append(f"✅ Fallback plan created with {first_tool}")
+            else:
+                # No tools available, skip to response generation
+                state["plan"] = []
+                state["thinking_steps"].append("⚠️ No enabled tools available for fallback plan")
 
     except Exception as e:
         logger.error(f"Error in unified planning decision: {e}")
@@ -637,82 +603,16 @@ Use tools before responding. Make HTML professional."""
 
 
 def generate_final_response_from_available_data(state: SearchAgentState) -> str:
-    """Generate a final HTML-formatted response when iteration limit is reached"""
+    """Generate a simple fallback response when LLM fails"""
     import html as html_lib
-    query = state.get("input", "")
-    search_results = state.get("search_results", [])
-    tool_results = state.get("tool_execution_results", [])
-    conversation_history = state.get("conversation_history", [])
+    query = html_lib.escape(state.get("input", ""))
+    tool_count = len(state.get("tool_execution_results", []))
 
-    # Create HTML-formatted response
-    html_parts = []
-
-    # Start main container
-    html_parts.append('<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 800px;">')
-
-    # Header section
-    if conversation_history:
-        html_parts.append('<h3 style="color: #2c3e50; font-size: 1.2em; margin-bottom: 16px; font-weight: 600;">Followup Query Summary</h3>')
-        html_parts.append(f'<p style="margin-bottom: 12px;">Building on our previous conversation, I\'ve processed your followup query: <strong>"{html_lib.escape(query)}"</strong></p>')
-    else:
-        html_parts.append('<h3 style="color: #2c3e50; font-size: 1.2em; margin-bottom: 16px; font-weight: 600;">Search Results Summary</h3>')
-        html_parts.append(f'<p style="margin-bottom: 12px;">I\'ve processed your query: <strong>"{html_lib.escape(query)}"</strong></p>')
-
-    # Tool results section
-    if tool_results:
-        html_parts.append('<h4 style="color: #2c3e50; font-size: 1.1em; margin: 20px 0 12px 0;">Information Gathered</h4>')
-        html_parts.append('<ul style="margin: 12px 0; padding-left: 20px;">')
-        for i, result in enumerate(tool_results[:5]):  # Show max 5 results
-            tool_name = html_lib.escape(result.get('tool_name', 'Unknown tool'))
-            summary = html_lib.escape(str(result.get('result', 'Tool execution result available'))[:200])
-            html_parts.append(f'<li style="margin-bottom: 8px;"><strong>{tool_name}:</strong> {summary}{"..." if len(str(result.get("result", ""))) > 200 else ""}</li>')
-        html_parts.append('</ul>')
-
-    # Search results section
-    if search_results:
-        html_parts.append('<h4 style="color: #2c3e50; font-size: 1.1em; margin: 20px 0 12px 0;">Search Results Found</h4>')
-        html_parts.append('<ul style="margin: 12px 0; padding-left: 20px;">')
-        for i, result in enumerate(search_results[:3]):  # Show first 3 results
-            title = html_lib.escape(result.get('reasoning_task', result.get('title', 'Search result')))
-            analysis = html_lib.escape(str(result.get('analysis', 'Analysis available'))[:150])
-            html_parts.append(f'<li style="margin-bottom: 8px;"><strong>{title}:</strong> {analysis}{"..." if len(str(result.get("analysis", ""))) > 150 else ""}</li>')
-        html_parts.append('</ul>')
-
-    # Key insights section
-    if tool_results or search_results:
-        html_parts.append('<div style="background: #f8f9fa; padding: 16px; border-radius: 6px; border-left: 3px solid #007bff; margin: 16px 0;">')
-        html_parts.append('<h4 style="margin-top: 0; margin-bottom: 12px; color: #2c3e50; font-size: 1.1em;">Key Insights</h4>')
-        html_parts.append('<ul style="margin: 10px 0 0 0; padding-left: 18px;">')
-
-        if tool_results:
-            html_parts.append(f'<li style="margin-bottom: 6px;">Executed {len(tool_results)} tool operations to gather information</li>')
-        if search_results:
-            html_parts.append(f'<li style="margin-bottom: 6px;">Found {len(search_results)} relevant search results</li>')
-        if conversation_history:
-            html_parts.append('<li style="margin-bottom: 6px;">Built upon previous conversation context</li>')
-
-        html_parts.append('</ul>')
-        html_parts.append('</div>')
-    else:
-        # No results section
-        html_parts.append('<div style="background: #fff3cd; padding: 16px; border-radius: 6px; border-left: 3px solid #ffc107; margin: 16px 0;">')
-        html_parts.append('<h4 style="margin-top: 0; margin-bottom: 12px; color: #856404; font-size: 1.1em;">Limited Information Available</h4>')
-        if conversation_history:
-            html_parts.append('<p style="margin: 0; color: #856404;">I wasn\'t able to gather additional specific information, but I can provide insights based on our conversation context.</p>')
-        else:
-            html_parts.append('<p style="margin: 0; color: #856404;">I wasn\'t able to gather specific information for this query.</p>')
-        html_parts.append('</div>')
-
-    # Next steps section
-    html_parts.append('<div style="margin-top: 20px; padding: 12px 0; border-top: 1px solid #e9ecef;">')
-    html_parts.append('<h4 style="color: #2c3e50; font-size: 1.0em; margin: 0 0 8px 0;">Next Steps</h4>')
-    if conversation_history:
-        html_parts.append('<p style="margin: 0; font-size: 0.9em; color: #6c757d;">For more detailed information, try asking a more specific followup question or request particular aspects of the topic.</p>')
-    else:
-        html_parts.append('<p style="margin: 0; font-size: 0.9em; color: #6c757d;">For more specific information, try refining your query or asking a follow-up question with more details.</p>')
-    html_parts.append('</div>')
-
-    # Close main container
-    html_parts.append('</div>')
-
-    return "".join(html_parts)
+    return f"""<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 800px; padding: 20px;">
+    <h3 style="color: #e74c3c; margin-bottom: 16px;">⚠️ Response Generation Issue</h3>
+    <p style="margin-bottom: 12px;">I encountered an issue generating a detailed response for: <strong>"{query}"</strong></p>
+    {f'<p style="margin-bottom: 12px; color: #2c3e50;">However, I successfully gathered information from {tool_count} tool(s).</p>' if tool_count > 0 else '<p style="margin-bottom: 12px; color: #666;">No tool results were available.</p>'}
+    <div style="background: #fff3cd; padding: 16px; border-radius: 6px; border-left: 3px solid #ffc107; margin: 16px 0;">
+        <p style="margin: 0; color: #856404; font-size: 0.9em;">💡 <strong>Suggestion:</strong> Please try rephrasing your query or ask a follow-up question for better results.</p>
+    </div>
+</div>"""

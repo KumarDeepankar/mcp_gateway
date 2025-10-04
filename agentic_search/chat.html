@@ -9,16 +9,20 @@
 </head>
 <body>
     <div id="left-page-logo" class="page-logo">
-        <h2>🔍 Agentic Search</h2>
+        <h2><span class="logo-icon">🔍</span> <span class="logo-text">Agentic Search</span></h2>
     </div>
 
-    <button class="mobile-sidebar-toggle" id="mobile-sidebar-toggle" title="Toggle Sidebar">
-        <span>&#9776;</span>
+    <button class="sidebar-toggle-btn" id="sidebar-toggle-btn" title="Toggle Sidebar">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
     </button>
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <aside id="left-sidebar">
+    <aside id="left-sidebar" class="sidebar-visible">
         <div class="sidebar-header">
             <h3>Tools & Controls</h3>
         </div>
@@ -76,6 +80,12 @@
             </div>
             <div id="input-area">
                 <input type="text" id="message-input" placeholder="Enter your search query..." autocomplete="off">
+                <button id="new-search-input-btn" aria-label="Start new search">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 5v14m-7-7h14"></path>
+                    </svg>
+                    New Search
+                </button>
                 <button id="send-button" aria-label="Send search query">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
                         <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
