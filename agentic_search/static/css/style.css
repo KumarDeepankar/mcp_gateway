@@ -150,38 +150,32 @@ body {
     }
 }
 
-/* Sidebar Toggle Button */
+/* Sidebar Toggle Button - Inside Input Area */
 .sidebar-toggle-btn {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 1002;
-    background: var(--glass-bg);
-    backdrop-filter: blur(10px);
-    border: 1px solid var(--border-color);
+    background: transparent;
+    border: none;
     border-radius: 12px;
-    padding: 10px 12px;
+    padding: 8px 10px;
     cursor: pointer;
-    box-shadow: var(--shadow-md);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.2s ease;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .sidebar-toggle-btn:hover {
-    background: var(--primary-color);
+    background: rgba(55, 65, 81, 0.05);
     transform: translateY(-1px);
-    box-shadow: var(--shadow-lg);
 }
 
 .sidebar-toggle-btn:hover svg {
-    stroke: white;
+    stroke: var(--text-color);
 }
 
 .sidebar-toggle-btn svg {
-    stroke: var(--text-color);
-    transition: all 0.3s ease;
+    stroke: var(--primary-color);
+    transition: all 0.2s ease;
 }
 
 .sidebar-toggle-btn:active {
@@ -216,11 +210,44 @@ body {
     pointer-events: auto;
 }
 
+.sidebar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0;
+}
+
 .sidebar-header h3 {
     font-size: 16px;
     font-weight: 600;
     margin-bottom: 20px;
     color: var(--text-color);
+}
+
+.sidebar-collapse-btn {
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    padding: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 20px;
+}
+
+.sidebar-collapse-btn:hover {
+    background: rgba(55, 65, 81, 0.08);
+}
+
+.sidebar-collapse-btn svg {
+    stroke: var(--primary-color);
+    transition: all 0.2s ease;
+}
+
+.sidebar-collapse-btn:hover svg {
+    stroke: var(--text-color);
 }
 
 .sidebar-tool {
@@ -364,6 +391,7 @@ body {
     display: flex;
     flex-direction: column;
     position: relative;
+    padding-bottom: 70px; /* Add space for fixed footer */
 }
 
 #chat-console {
@@ -464,7 +492,7 @@ body {
 #input-area {
     display: flex;
     gap: 12px;
-    padding: 14px 24px;
+    padding: 10px 24px;
     background: var(--glass-bg);
     backdrop-filter: blur(10px);
     border: 1px solid var(--border-color);
@@ -480,7 +508,7 @@ body {
     left: 50%;
     transform: translate(-50%, -50%);
     width: calc(100% - 40px);
-    max-width: 700px;
+    max-width: 900px;
     z-index: 10;
 }
 
@@ -509,7 +537,7 @@ body {
     border: none;
     outline: none;
     font-size: 16px;
-    padding: 8px 0;
+    padding: 6px 0;
     background: transparent;
     color: var(--text-color);
 }
@@ -584,10 +612,18 @@ body {
 
 /* Footer */
 .chat-footer-copyright {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
     text-align: center;
-    padding: 16px;
+    padding: 12px;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: 11px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    border-top: 1px solid var(--border-color);
+    z-index: 100;
 }
 
 /* Modals */

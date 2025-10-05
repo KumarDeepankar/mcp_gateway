@@ -35,6 +35,7 @@ class AgenticSearch {
 
         // Sidebar toggle
         this.sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+        this.sidebarCollapseBtn = document.getElementById('sidebar-collapse-btn');
         this.sidebarOverlay = document.getElementById('sidebar-overlay');
         this.sidebarVisible = false; // Start collapsed by default
 
@@ -66,6 +67,9 @@ class AgenticSearch {
 
         // Sidebar toggle button
         this.sidebarToggleBtn.addEventListener('click', () => this.toggleSidebar());
+
+        // Sidebar collapse button
+        this.sidebarCollapseBtn.addEventListener('click', () => this.toggleSidebar());
 
         // Close sidebar when clicking overlay (mobile)
         this.sidebarOverlay.addEventListener('click', () => this.toggleSidebar());

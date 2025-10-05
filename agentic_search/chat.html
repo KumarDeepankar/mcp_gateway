@@ -3,28 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Agentic Search</title>
+    <title>AI Search</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="static/css/style.css">
 </head>
 <body>
     <div id="left-page-logo" class="page-logo">
-        <h2><span class="logo-icon">🔍</span> <span class="logo-text">Agentic Search</span></h2>
+        <h2><span class="logo-icon">🔍</span> <span class="logo-text">AI Search</span></h2>
     </div>
-
-    <button class="sidebar-toggle-btn" id="sidebar-toggle-btn" title="Toggle Sidebar">
-        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="3" y1="12" x2="21" y2="12"></line>
-            <line x1="3" y1="6" x2="21" y2="6"></line>
-            <line x1="3" y1="18" x2="21" y2="18"></line>
-        </svg>
-    </button>
 
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
     <aside id="left-sidebar" class="sidebar-visible">
         <div class="sidebar-header">
             <h3>Tools & Controls</h3>
+            <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="Collapse Sidebar">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="15 18 9 12 15 6"></polyline>
+                </svg>
+            </button>
         </div>
 
         <div class="sidebar-tool" id="new-search-button">
@@ -68,9 +65,7 @@
 
     <div id="search-branding-container">
         <div id="search-branding">
-            <div class="search-icon">🔍</div>
-            <h1>Agentic Search</h1>
-            <p class="search-subtitle">AI-powered search with MCP tools</p>
+            <h1><span class="search-icon">🔍</span> AI Search</h1>
         </div>
     </div>
 
@@ -79,6 +74,13 @@
             <div id="chat-console">
             </div>
             <div id="input-area">
+                <button class="sidebar-toggle-btn" id="sidebar-toggle-btn" title="Toggle Sidebar">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="3" y1="12" x2="21" y2="12"></line>
+                        <line x1="3" y1="6" x2="21" y2="6"></line>
+                        <line x1="3" y1="18" x2="21" y2="18"></line>
+                    </svg>
+                </button>
                 <input type="text" id="message-input" placeholder="Enter your search query..." autocomplete="off">
                 <button id="new-search-input-btn" aria-label="Start new search">
                     <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -93,7 +95,7 @@
                 </button>
             </div>
             <div class="chat-footer-copyright">
-                <p>&copy; <span id="copyright-year"></span> Agentic Search. AI-powered search with MCP tools.</p>
+                <p>&copy; <span id="copyright-year"></span> AI Search.</p>
             </div>
         </div>
     </div>

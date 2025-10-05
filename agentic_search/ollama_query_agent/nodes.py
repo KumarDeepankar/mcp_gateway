@@ -323,7 +323,8 @@ async def initialize_search_node(state: SearchAgentState) -> SearchAgentState:
     logger.info(f"Initializing search for query: {state['input']}")
 
     # Initialize state with new multi-task structure
-    state["thinking_steps"] = state.get("thinking_steps", [])
+    # IMPORTANT: Clear thinking_steps for each new turn - don't accumulate from previous turns
+    state["thinking_steps"] = []
     state["current_task_index"] = 0
     state["final_response_generated_flag"] = False
     state["final_response"] = None
@@ -349,8 +350,7 @@ async def initialize_search_node(state: SearchAgentState) -> SearchAgentState:
             state["thinking_steps"].append(f"Found {len(state['conversation_history'])} previous conversation turns")
             if state["conversation_history"]:
                 latest = state["conversation_history"][-1]
-                preview = latest.get("response", "")[:100] + "..." if len(
-                    latest.get("response", "")) > 100 else latest.get("response", "")
+                preview = latest.get("response", "")
                 state["thinking_steps"].append(f"💭 Previous context: {preview}")
     else:
         state["thinking_steps"].append("🆕 Fresh search session started")
