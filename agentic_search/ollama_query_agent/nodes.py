@@ -3,11 +3,12 @@ import logging
 import re
 from typing import Dict, Any, List
 from datetime import datetime
-from .state_definition import SearchAgentState, PlanStep
+from .state_definition import SearchAgentState, Task, ExecutionPlan, GatheredInformation, FinalResponse
 from .ollama_client import ollama_client
 from .mcp_tool_client import mcp_tool_client
 from .prompts import (
-    create_reasoning_response_prompt,
+    create_multi_task_planning_prompt,
+    create_information_synthesis_prompt,
     create_unified_planning_decision_prompt
 )
 
@@ -72,20 +73,60 @@ def clean_json_response(response: str) -> str:
     # Remove multi-line comments (/* ... */)
     response = re.sub(r'/\*.*?\*/', '', response, flags=re.DOTALL)
 
-    # Remove trailing commas before closing brackets/braces
-    response = re.sub(r',(\s*[}\]])', r'\1', response)
+    # Fix unescaped newlines inside strings (common issue with HTML content)
+    # This is a simplified approach - find strings and escape newlines
+    def escape_newlines_in_strings(match):
+        content = match.group(1)
+        # Escape unescaped newlines
+        content = content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
+        return f'"{content}"'
 
-    # Fix common JSON issues
-    # Remove trailing commas in arrays and objects (double-check)
+    # Be careful with this - only process simple string patterns
+    # Don't process strings that already have escape sequences
+    response = re.sub(r'"([^"\\]*(?:\\.[^"\\]*)*)"', lambda m: m.group(0), response)
+
+    # Fix HTML attributes with single quotes - convert to escaped double quotes
+    # Pattern: attribute='value' -> attribute=\"value\"
+    def fix_html_attributes(match):
+        full_match = match.group(0)
+        attr_name = match.group(1)
+        attr_value = match.group(2)
+        # Replace with escaped double quotes
+        return f'{attr_name}=\\"{attr_value}\\"'
+
+    # Find HTML attributes with single quotes
+    response = re.sub(r'(\w+)=\'([^\']+)\'', fix_html_attributes, response)
+
+    # Remove trailing commas before closing brackets/braces (more aggressive)
     response = re.sub(r',(\s*[}\]])', r'\1', response)
+    response = re.sub(r',(\s*[}\]])', r'\1', response)  # Run twice to catch nested cases
 
     # Fix missing quotes around keys (common LLM mistake) - only if not already quoted
     response = re.sub(r'([^"]|^)(\w+)(\s*:\s*)', r'\1"\2"\3', response)
 
-    # Fix single quotes to double quotes (but be careful with content)
-    # Only replace quotes that are likely to be JSON quotes, not content quotes
-    response = re.sub(r"'(\w+)'(\s*:)", r'"\1"\2', response)  # Keys
-    response = re.sub(r":\s*'([^']*)'", r': "\1"', response)   # String values
+    # Fix single quotes to double quotes for JSON structure
+    # First, handle the outer JSON structure (keys and simple values)
+    # Replace single quotes around keys
+    response = re.sub(r"'(\w+)'(\s*:)", r'"\1"\2', response)
+
+    # For string values with single quotes, we need to be more careful
+    # Replace single quotes that wrap values (but not quotes inside HTML)
+    # This is tricky - let's use a more conservative approach
+
+    # Replace single quotes that appear to be JSON string delimiters
+    # Pattern: : 'value' or : 'value with spaces'
+    def replace_single_quote_values(match):
+        content = match.group(1)
+        # If content contains HTML tags or is complex, keep the single quotes escaped
+        if '<' in content or '>' in content:
+            # This is HTML content - replace outer single quotes with double quotes
+            # but keep internal quotes as-is for now
+            return f': "{content}"'
+        else:
+            # Simple value - just replace quotes
+            return f': "{content}"'
+
+    response = re.sub(r":\s*'([^']*)'", replace_single_quote_values, response)
 
     # Fix common boolean/null values
     response = re.sub(r'\btrue\b', 'true', response, flags=re.IGNORECASE)
@@ -138,10 +179,11 @@ def extract_json_from_response(response: str) -> dict:
         # Look for JSON between code blocks - multiple patterns for robustness
         patterns = [
             r'```json\s*\n?(.*?)\n?```',  # ```json block
-            r'```\s*\n?(.*?)\n?```',      # generic ``` block
-            r'`(.*?)`',                   # single backticks
+            r'```\s*\n?(.*?)\n?```',  # generic ``` block
+            r'`(.*?)`',  # single backticks
         ]
 
+        json_extracted = False
         for pattern in patterns:
             json_match = re.search(pattern, response, re.DOTALL | re.IGNORECASE)
             if json_match:
@@ -149,7 +191,12 @@ def extract_json_from_response(response: str) -> dict:
                 # Only use if it looks like JSON
                 if candidate.startswith('{') and '}' in candidate:
                     response = candidate
+                    json_extracted = True
+                    print(f"[DEBUG] Extracted JSON from code block using pattern: {pattern}")
                     break
+
+        if not json_extracted:
+            print(f"[DEBUG] No code block found, using raw response")
 
         # Find the outermost JSON object
         start_idx = response.find('{')
@@ -169,10 +216,35 @@ def extract_json_from_response(response: str) -> dict:
                     break
 
         if end_idx == -1:
-            # Fallback: use rfind
+            # Fallback: use rfind for the last closing brace
             end_idx = response.rfind('}')
             if end_idx == -1:
-                raise ValueError("No closing brace found")
+                # Try to recover by finding what looks like the end of JSON
+                # Look for common patterns that might indicate truncation
+                logger.warning("No proper closing brace found, attempting recovery")
+
+                # Find the last complete structure
+                last_quote = response.rfind('"')
+                if last_quote > start_idx:
+                    # Try to close from the last quote
+                    test_end = response.find('\n', last_quote)
+                    if test_end == -1:
+                        test_end = len(response)
+
+                    # Add closing structures
+                    recovered = response[start_idx:test_end].rstrip(',').rstrip() + ']}}'
+                    print(f"[DEBUG] Attempting recovery with: {recovered[:100]}")
+
+                    try:
+                        # Test if this works
+                        test_json = clean_json_response(recovered)
+                        json.loads(test_json)
+                        response = recovered
+                        end_idx = len(recovered) - 1
+                    except:
+                        raise ValueError("No closing brace found and recovery failed")
+                else:
+                    raise ValueError("No closing brace found")
 
         json_str = response[start_idx:end_idx + 1]
 
@@ -187,8 +259,15 @@ def extract_json_from_response(response: str) -> dict:
         if not validate_json_structure(json_str):
             raise ValueError("JSON structure validation failed after cleaning")
 
+        print(f"[DEBUG] Cleaned JSON (first 300 chars): {json_str[:300]}")
+
         # Parse JSON
-        return json.loads(json_str)
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError as e:
+            print(f"[DEBUG] JSON decode failed at position {e.pos}")
+            print(f"[DEBUG] Context around error: {json_str[max(0, e.pos-50):min(len(json_str), e.pos+50)]}")
+            raise
 
     except json.JSONDecodeError as e:
         # Try more aggressive cleaning
@@ -224,40 +303,40 @@ async def initialize_search_node(state: SearchAgentState) -> SearchAgentState:
     """Initialize the search session"""
     logger.info(f"Initializing search for query: {state['input']}")
 
-    # Initialize state
+    # Initialize state with new multi-task structure
     state["thinking_steps"] = state.get("thinking_steps", [])
-    state["current_step_index"] = 0
+    state["current_task_index"] = 0
     state["final_response_generated_flag"] = False
-    state["final_response_content"] = None
-    state["tool_execution_results"] = []
+    state["final_response"] = None
+    state["execution_plan"] = None
+    state["gathered_information"] = None
     state["error_message"] = None
 
-    # Initialize iteration control (matching agentic_assistant naming)
+    # Initialize iteration control
     state["current_turn_iteration_count"] = 0
-    state["max_turn_iterations"] = 1  # Reasonable limit to prevent infinite loops
+    state["max_turn_iterations"] = 1  # One iteration: plan -> execute -> respond
 
     # Initialize conversation history if not present
     state["conversation_history"] = state.get("conversation_history", [])
     state["is_followup_query"] = state.get("is_followup_query", False)
 
     # Enhanced thinking steps for streaming UI
-    state["thinking_steps"].append("🚀 Initializing Agentic Search Agent")
+    state["thinking_steps"].append("🚀 Initializing Multi-Task Agentic Search")
     state["thinking_steps"].append(f"📝 Query: '{state['input']}'")
 
     if state["is_followup_query"]:
         state["thinking_steps"].append("🔄 Followup query detected - loading conversation context")
         if state["conversation_history"]:
             state["thinking_steps"].append(f"📚 Found {len(state['conversation_history'])} previous conversation turns")
-            # Show latest context
             if state["conversation_history"]:
                 latest = state["conversation_history"][-1]
-                preview = latest.get("response", "")[:100] + "..." if len(latest.get("response", "")) > 100 else latest.get("response", "")
+                preview = latest.get("response", "")[:100] + "..." if len(
+                    latest.get("response", "")) > 100 else latest.get("response", "")
                 state["thinking_steps"].append(f"💭 Previous context: {preview}")
     else:
         state["thinking_steps"].append("🆕 Fresh search session started")
 
-    state["thinking_steps"].append(f"⚙️ Session config: Max iterations = {state['max_turn_iterations']}")
-    state["thinking_steps"].append("✅ Search session initialized successfully")
+    state["thinking_steps"].append("✅ Search session initialized - ready for multi-task planning")
 
     print(f"[DEBUG initialize_search_node] conversation_history: {state['conversation_history']}")
     print(f"[DEBUG initialize_search_node] is_followup_query: {state['is_followup_query']}")
@@ -285,7 +364,7 @@ async def discover_tools_node(state: SearchAgentState) -> SearchAgentState:
         if available_tools:
             tool_names = [tool.get("name", "unknown") for tool in available_tools]
             state["thinking_steps"].append(f"🛠️ Available tools: {', '.join(tool_names[:5])}" +
-                                         (f" and {len(tool_names)-5} more..." if len(tool_names) > 5 else ""))
+                                           (f" and {len(tool_names) - 5} more..." if len(tool_names) > 5 else ""))
 
         # If no enabled tools specified, use all available tools
         if not state.get("enabled_tools"):
@@ -307,57 +386,395 @@ async def discover_tools_node(state: SearchAgentState) -> SearchAgentState:
     return state
 
 
-async def execute_tool_step_node(state: SearchAgentState) -> SearchAgentState:
-    """Execute the next tool call step from the plan"""
-    plan = state.get("plan", [])
-    current_index = state.get("current_step_index", 0)
+async def create_execution_plan_node(state: SearchAgentState) -> SearchAgentState:
+    """Create a multi-task execution plan"""
+    logger.info("Creating multi-task execution plan")
 
-    if current_index >= len(plan):
-        state["error_message"] = "No more steps to execute"
-        return state
-
-    current_step = plan[current_index]
+    state["thinking_steps"].append("🎯 Creating Multi-Task Execution Plan")
+    state["thinking_steps"].append("📊 Analyzing query to identify required tasks")
 
     try:
-        # Execute tool call
-        state["thinking_steps"].append(f"🔧 Executing step {current_index + 1}/{len(plan)}: {current_step.tool_name}")
+        # Filter to only enabled tools
+        enabled_tool_names = state.get("enabled_tools", [])
+        all_tools = state.get("available_tools", [])
+        enabled_tools_only = [
+            tool for tool in all_tools
+            if tool.get("name") in enabled_tool_names
+        ]
 
-        # Add argument details if available
-        if current_step.tool_arguments:
-            arg_summary = ", ".join([f"{k}={str(v)[:50]}..." if len(str(v)) > 50 else f"{k}={v}"
-                                   for k, v in current_step.tool_arguments.items()])
-            state["thinking_steps"].append(f"📋 Arguments: {arg_summary}")
-
-        # Call the tool via MCP
-        result = await mcp_tool_client.call_tool(
-            current_step.tool_name,
-            current_step.tool_arguments or {}
+        # Create planning prompt
+        prompt = create_multi_task_planning_prompt(
+            user_query=state["input"],
+            enabled_tools=enabled_tools_only,
+            conversation_history=state.get("conversation_history", [])
         )
 
-        # Store the result
-        execution_result = {
-            "step_number": current_step.step_number,
-            "tool_name": current_step.tool_name,
-            "arguments": current_step.tool_arguments,
-            "result": result
-        }
+        state["thinking_steps"].append("🤖 Consulting AI for task planning...")
 
-        state["tool_execution_results"].append(execution_result)
+        system_prompt = """You are a JSON-only planning agent. Output ONLY valid JSON, no other text.
 
-        # Add result summary
-        result_summary = str(result)[:100] + "..." if len(str(result)) > 100 else str(result)
-        state["thinking_steps"].append(f"✅ Tool executed successfully")
-        state["thinking_steps"].append(f"📊 Result: {result_summary}")
+FORMAT: Single JSON object with "reasoning" and "tasks" array.
+RULES:
+- Start with { and end with }
+- NO code blocks, NO markdown, NO explanations
+- Each task needs: task_number, tool_name, tool_arguments, description
+- Ensure proper JSON syntax (commas, quotes, brackets)
 
-        # Move to next step
-        state["current_step_index"] = current_index + 1
+Example:
+{"reasoning":"Need to search multiple times","tasks":[{"task_number":1,"tool_name":"search_stories","tool_arguments":{"query":"AI","size":10},"description":"Search for AI"}]}
+
+Output JSON now:"""
+
+        response = await ollama_client.generate_response(prompt, system_prompt)
+        state["thinking_steps"].append("✅ Received planning response")
+
+        # Parse the response with better error handling
+        try:
+            plan_data = extract_json_from_response(response)
+        except Exception as e:
+            logger.error(f"Failed to parse plan JSON: {e}")
+            logger.error(f"Response: {response[:300]}")
+            state["thinking_steps"].append(f"⚠️ JSON parsing failed, creating fallback plan")
+
+            # Create a simple fallback plan with one task
+            enabled_tool_names = state.get("enabled_tools", [])
+            if enabled_tool_names:
+                first_tool = enabled_tool_names[0]
+                plan_data = {
+                    "reasoning": "Fallback plan due to parsing error",
+                    "tasks": [
+                        {
+                            "task_number": 1,
+                            "tool_name": first_tool,
+                            "tool_arguments": {"query": state["input"], "size": 10},
+                            "description": f"Search using {first_tool}"
+                        }
+                    ]
+                }
+            else:
+                raise Exception("No enabled tools available for fallback plan")
+
+        # Create ExecutionPlan with Tasks
+        tasks = []
+        for task_data in plan_data.get("tasks", []):
+            task = Task(
+                task_number=task_data.get("task_number", len(tasks) + 1),
+                tool_name=task_data["tool_name"],
+                tool_arguments=task_data.get("tool_arguments", {}),
+                description=task_data.get("description", ""),
+                status="pending"
+            )
+            tasks.append(task)
+
+        execution_plan = ExecutionPlan(
+            tasks=tasks,
+            reasoning=plan_data.get("reasoning", ""),
+            plan_created_at=datetime.now().isoformat()
+        )
+
+        state["execution_plan"] = execution_plan
+        state["current_task_index"] = 0
+
+        state["thinking_steps"].append(f"📋 Created plan with {len(tasks)} tasks")
+        state["thinking_steps"].append(f"💭 Plan reasoning: {execution_plan.reasoning}")
+
+        for i, task in enumerate(tasks):
+            state["thinking_steps"].append(f"  Task {i+1}: {task.tool_name} - {task.description}")
 
     except Exception as e:
-        logger.error(f"Error executing step: {e}")
-        state["error_message"] = f"Step execution failed: {str(e)}"
+        logger.error(f"Error creating execution plan: {e}")
+        state["thinking_steps"].append(f"❌ Failed to create plan: {str(e)}")
+        state["error_message"] = f"Planning failed: {str(e)}"
 
     return state
 
+
+async def execute_task_node(state: SearchAgentState) -> SearchAgentState:
+    """Execute the next task from the execution plan (DEPRECATED - use execute_all_tasks_parallel_node)"""
+    execution_plan = state.get("execution_plan")
+    current_index = state.get("current_task_index", 0)
+
+    if not execution_plan or current_index >= len(execution_plan.tasks):
+        state["error_message"] = "No more tasks to execute"
+        return state
+
+    current_task = execution_plan.tasks[current_index]
+
+    try:
+        # Update task status
+        current_task.status = "executing"
+
+        state["thinking_steps"].append(f"🔧 Executing Task {current_index + 1}/{len(execution_plan.tasks)}")
+        state["thinking_steps"].append(f"🛠️ Tool: {current_task.tool_name}")
+        state["thinking_steps"].append(f"📝 Purpose: {current_task.description}")
+
+        # Add argument details
+        if current_task.tool_arguments:
+            arg_summary = ", ".join([f"{k}={str(v)[:50]}..." if len(str(v)) > 50 else f"{k}={v}"
+                                     for k, v in current_task.tool_arguments.items()])
+            state["thinking_steps"].append(f"📋 Parameters: {arg_summary}")
+
+        # Call the tool via MCP
+        result = await mcp_tool_client.call_tool(
+            current_task.tool_name,
+            current_task.tool_arguments
+        )
+
+        # Update task with result
+        current_task.result = result
+        current_task.status = "completed"
+
+        # Add FULL result for debugging (no truncation)
+        state["thinking_steps"].append(f"✅ Task completed successfully")
+        state["thinking_steps"].append(f"📊 Full Result: {str(result)}")
+
+        # Move to next task
+        state["current_task_index"] = current_index + 1
+
+    except Exception as e:
+        logger.error(f"Error executing task: {e}")
+        current_task.status = "failed"
+        current_task.result = {"error": str(e)}
+        state["thinking_steps"].append(f"❌ Task failed: {str(e)}")
+        state["error_message"] = f"Task execution failed: {str(e)}"
+
+    return state
+
+
+async def execute_all_tasks_parallel_node(state: SearchAgentState) -> SearchAgentState:
+    """Execute ALL tasks from the execution plan in parallel"""
+    import asyncio
+
+    execution_plan = state.get("execution_plan")
+
+    if not execution_plan or not execution_plan.tasks:
+        state["error_message"] = "No tasks to execute"
+        return state
+
+    tasks = execution_plan.tasks
+    total_tasks = len(tasks)
+
+    state["thinking_steps"].append(f"🚀 Starting parallel execution of {total_tasks} tasks")
+    state["thinking_steps"].append(f"⚡ Tasks will execute concurrently for faster results")
+
+    async def execute_single_task(task: Task, task_index: int) -> tuple[int, Task]:
+        """Execute a single task and return its index and updated task"""
+        try:
+            task.status = "executing"
+
+            # Call the tool via MCP
+            result = await mcp_tool_client.call_tool(
+                task.tool_name,
+                task.tool_arguments
+            )
+
+            # Update task with result
+            task.result = result
+            task.status = "completed"
+
+            logger.info(f"Task {task_index + 1}/{total_tasks} completed: {task.tool_name}")
+            return (task_index, task)
+
+        except Exception as e:
+            logger.error(f"Error executing task {task_index + 1}: {e}")
+            task.status = "failed"
+            task.result = {"error": str(e)}
+            return (task_index, task)
+
+    # Create coroutines for all tasks
+    task_coroutines = [
+        execute_single_task(task, idx)
+        for idx, task in enumerate(tasks)
+    ]
+
+    # Execute all tasks in parallel using asyncio.gather
+    state["thinking_steps"].append(f"⏳ Executing {total_tasks} tasks concurrently...")
+
+    try:
+        # Use asyncio.gather to run all tasks in parallel
+        results = await asyncio.gather(*task_coroutines, return_exceptions=True)
+
+        # Process results
+        completed_count = 0
+        failed_count = 0
+
+        for result in results:
+            if isinstance(result, Exception):
+                failed_count += 1
+                logger.error(f"Task execution raised exception: {result}")
+            else:
+                task_index, updated_task = result
+                execution_plan.tasks[task_index] = updated_task
+
+                if updated_task.status == "completed":
+                    completed_count += 1
+                    state["thinking_steps"].append(
+                        f"✅ Task {task_index + 1}: {updated_task.tool_name} - {updated_task.description}"
+                    )
+                    state["thinking_steps"].append(f"📊 Full Result: {str(updated_task.result)}")
+                else:
+                    failed_count += 1
+                    state["thinking_steps"].append(
+                        f"❌ Task {task_index + 1}: {updated_task.tool_name} - Failed"
+                    )
+
+        state["thinking_steps"].append(f"✨ Parallel execution complete!")
+        state["thinking_steps"].append(f"📊 Results: {completed_count} completed, {failed_count} failed")
+
+        # Update current_task_index to indicate all tasks processed
+        state["current_task_index"] = total_tasks
+
+        if failed_count > 0 and completed_count == 0:
+            state["error_message"] = f"All {total_tasks} tasks failed"
+
+    except Exception as e:
+        logger.error(f"Error in parallel execution: {e}")
+        state["thinking_steps"].append(f"❌ Parallel execution error: {str(e)}")
+        state["error_message"] = f"Parallel execution failed: {str(e)}"
+
+    return state
+
+
+async def gather_and_synthesize_node(state: SearchAgentState) -> SearchAgentState:
+    """Gather all task results and synthesize into final response"""
+    logger.info("Gathering information and synthesizing response")
+
+    state["thinking_steps"].append("🧠 Information Synthesis Phase")
+    state["thinking_steps"].append("📊 Gathering results from all completed tasks")
+
+    try:
+        execution_plan = state.get("execution_plan")
+        if not execution_plan:
+            state["error_message"] = "No execution plan found"
+            return state
+
+        # Gather information from all tasks
+        task_results = []
+        sources_used = []
+
+        for task in execution_plan.tasks:
+            if task.status == "completed" and task.result:
+                task_results.append({
+                    "task_number": task.task_number,
+                    "tool_name": task.tool_name,
+                    "description": task.description,
+                    "arguments": task.tool_arguments,
+                    "result": task.result
+                })
+                if task.tool_name not in sources_used:
+                    sources_used.append(task.tool_name)
+
+        gathered_info = GatheredInformation(
+            task_results=task_results,
+            sources_used=sources_used
+        )
+
+        state["gathered_information"] = gathered_info
+        state["thinking_steps"].append(f"✅ Gathered results from {len(task_results)} completed tasks")
+        state["thinking_steps"].append(f"📚 Sources used: {', '.join(sources_used)}")
+
+        # Now synthesize the information
+        state["thinking_steps"].append("🤖 Synthesizing information into comprehensive response...")
+
+        # Prepare gathered information for synthesis
+        synthesis_data = {
+            "task_results": task_results,
+            "sources_used": sources_used,
+            "total_tasks": len(execution_plan.tasks),
+            "completed_tasks": len(task_results)
+        }
+
+        prompt = create_information_synthesis_prompt(
+            user_query=state["input"],
+            gathered_information=synthesis_data,
+            conversation_history=state.get("conversation_history", [])
+        )
+
+        system_prompt = """You are a JSON-only response agent. Output ONLY valid JSON, no other text.
+
+FORMAT REQUIREMENTS:
+- Start with { and end with }
+- Two fields: "reasoning" (string) and "response_content" (string with HTML)
+- NO newlines inside string values
+- NO comments
+- NO trailing commas
+- Escape all quotes inside strings
+
+Example:
+{"reasoning": "Analysis of data", "response_content": "<div><h3>Title</h3><p>Content here.</p></div>"}
+
+Output valid JSON now:"""
+
+        response = await ollama_client.generate_response(prompt, system_prompt)
+        state["thinking_steps"].append("✅ Received synthesis response")
+
+        # Parse the response with enhanced error handling
+        try:
+            synthesis_data = extract_json_from_response(response)
+
+            # Validate required fields
+            if not synthesis_data.get("response_content"):
+                raise ValueError("response_content is missing or empty")
+
+            # Create FinalResponse
+            final_response = FinalResponse(
+                response_content=synthesis_data.get("response_content", ""),
+                reasoning=synthesis_data.get("reasoning", "Information synthesized from task results"),
+                information_used=gathered_info
+            )
+
+            state["final_response"] = final_response
+            state["final_response_generated_flag"] = True
+
+            state["thinking_steps"].append("✅ Final response generated successfully")
+            state["thinking_steps"].append(f"💭 Synthesis reasoning: {final_response.reasoning[:100]}...")
+
+            # Save conversation history
+            save_conversation_turn(state, final_response.response_content)
+
+        except Exception as json_error:
+            logger.error(f"JSON parsing failed: {json_error}")
+            logger.error(f"Raw response (first 500 chars): {response[:500]}")
+
+            # Try alternative: extract HTML directly if JSON parsing fails
+            state["thinking_steps"].append(f"⚠️ JSON parsing failed, attempting HTML extraction")
+
+            # Look for HTML content in the response
+            import re
+            html_match = re.search(r'<div[^>]*>.*?</div>', response, re.DOTALL | re.IGNORECASE)
+
+            if html_match:
+                html_content = html_match.group(0)
+                final_response = FinalResponse(
+                    response_content=html_content,
+                    reasoning="Extracted from LLM response (JSON parsing failed)",
+                    information_used=gathered_info
+                )
+                state["final_response"] = final_response
+                state["final_response_generated_flag"] = True
+                save_conversation_turn(state, html_content)
+                state["thinking_steps"].append("✅ Extracted HTML response successfully")
+            else:
+                # Last resort: generate fallback
+                raise json_error
+
+    except Exception as e:
+        logger.error(f"Error in gather and synthesize: {e}")
+        state["thinking_steps"].append(f"❌ Synthesis failed: {str(e)}")
+        state["error_message"] = f"Synthesis failed: {str(e)}"
+
+        # Fallback response
+        fallback_response = generate_final_response_from_available_data(state)
+        final_response = FinalResponse(
+            response_content=fallback_response,
+            reasoning="Fallback response due to synthesis error",
+            information_used=state.get("gathered_information")
+        )
+        state["final_response"] = final_response
+        state["final_response_generated_flag"] = True
+        save_conversation_turn(state, fallback_response)
+
+    return state
 
 
 async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgentState:
@@ -372,8 +789,9 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
     state["thinking_steps"].append("📊 Analyzing current information gathered...")
 
     # Show current state for transparency
-    tool_results_count = len(state.get("tool_execution_results", []))
-    state["thinking_steps"].append(f"🔧 Tool executions completed: {tool_results_count}")
+    execution_plan = state.get("execution_plan")
+    has_plan = execution_plan is not None
+    state["thinking_steps"].append(f"📋 Execution plan exists: {has_plan}")
 
     if current_iteration > max_iterations:
         logger.info(f"⏰ Reached iteration limit ({max_iterations})")
@@ -381,224 +799,30 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
         state["thinking_steps"].append("📝 Generating summary response with available information")
 
         try:
-            # Try to generate final response using existing prompt
-            prompt = create_reasoning_response_prompt(
-                user_query=state["input"],
-                tool_results=state.get("tool_execution_results", []),
-                conversation_history=state.get("conversation_history", [])
-            )
-
-            final_response = await ollama_client.generate_response(prompt)
-            state["final_response_content"] = final_response
-            state["final_response_generated_flag"] = True
-            state["current_turn_iteration_count"] = current_iteration
-
-            # Save conversation history
-            save_conversation_turn(state, final_response)
-
-            return state
+            # Force synthesis with whatever we have
+            return await gather_and_synthesize_node(state)
         except Exception as e:
             logger.error(f"Error generating summary: {str(e)}")
-            final_response = generate_final_response_from_available_data(state)
-            state["final_response_content"] = final_response
+            final_response_content = generate_final_response_from_available_data(state)
+            final_response = FinalResponse(
+                response_content=final_response_content,
+                reasoning="Fallback response due to iteration limit",
+                information_used=state.get("gathered_information")
+            )
+            state["final_response"] = final_response
             state["final_response_generated_flag"] = True
             state["current_turn_iteration_count"] = current_iteration
 
             # Save conversation history
-            save_conversation_turn(state, final_response)
+            save_conversation_turn(state, final_response_content)
 
             return state
-
-    try:
-        # Prepare executed steps for context
-        executed_steps = []
-        if state.get("tool_execution_results"):
-            for i, result in enumerate(state["tool_execution_results"]):
-                executed_steps.append({
-                    "step_number": i + 1,
-                    "type": "tool_execution",
-                    "result": result
-                })
-
-        # Convert current plan to serializable format
-        current_plan = state.get("plan", [])
-        serializable_plan = []
-        for step in current_plan:
-            if hasattr(step, 'model_dump'):  # Pydantic model
-                serializable_plan.append(step.model_dump())
-            elif hasattr(step, '__dict__'):  # Regular object
-                serializable_plan.append(step.__dict__)
-            else:  # Already a dict
-                serializable_plan.append(step)
-
-        # Filter to only enabled tools for planning
-        enabled_tool_names = state.get("enabled_tools", [])
-        all_tools = state.get("available_tools", [])
-        enabled_tools_only = [
-            tool for tool in all_tools
-            if tool.get("name") in enabled_tool_names
-        ]
-
-        print(f"[DEBUG] Total available tools: {len(all_tools)}")
-        print(f"[DEBUG] User-enabled tools: {enabled_tool_names}")
-        print(f"[DEBUG] Passing {len(enabled_tools_only)} tools to LLM for planning")
-
-        # Create unified prompt
-        prompt = create_unified_planning_decision_prompt(
-            user_query=state["input"],
-            tool_results=state.get("tool_execution_results", []),
-            enabled_tools=enabled_tools_only,
-            executed_steps=executed_steps,
-            conversation_history=state.get("conversation_history", []),
-            current_plan=serializable_plan
-        )
-
-        # Get decision from Ollama
-        state["thinking_steps"].append("🤖 Consulting AI for planning decision...")
-        state["thinking_steps"].append("📋 Analyzing query requirements vs available information")
-
-        system_prompt = """You are a planning agent. Respond with valid JSON only.
-
-CRITICAL RULES:
-1. No information? Create a plan with TOOL_CALL steps ONLY
-2. Have tool results? Generate final HTML response
-3. Valid JSON only - no comments, no extra text
-4. NEVER use "REASONING_STEP" - ONLY "TOOL_CALL" with a tool_name
-
-FORMAT:
-Planning: {"decision_type": "PLAN_AND_EXECUTE", "reasoning": "why", "plan": [{"step_number": 1, "step_type": "TOOL_CALL", "tool_name": "search_stories", "description": "...", "tool_arguments": {...}}]}
-Response: {"decision_type": "GENERATE_RESPONSE", "reasoning": "why", "final_response": "<div>...</div>"}
-
-Every plan step MUST have "step_type": "TOOL_CALL" and a valid "tool_name"."""
-
-        state["thinking_steps"].append("⏳ Generating planning decision (this may take a moment)...")
-        response = await ollama_client.generate_response(prompt, system_prompt)
-        state["thinking_steps"].append("✅ Received planning decision from AI")
-
-        # Parse the response
-        try:
-            state["thinking_steps"].append("🔍 Parsing AI decision response...")
-            # Use improved JSON extraction
-            decision_data = extract_json_from_response(response)
-            state["thinking_steps"].append("✅ Successfully parsed AI decision")
-
-            decision_type = decision_data.get("decision_type")
-            reasoning = decision_data.get("reasoning", "")
-
-            # Debug information
-            if not decision_type:
-                logger.error(f"No decision_type found in response. Keys: {list(decision_data.keys())}")
-                state["thinking_steps"].append(f"⚠️ No decision_type found. Available keys: {list(decision_data.keys())}")
-
-                # Try to infer decision type from available keys
-                if "plan" in decision_data and decision_data.get("plan"):
-                    decision_type = "PLAN_AND_EXECUTE"
-                    state["thinking_steps"].append("🔧 Inferred decision_type as PLAN_AND_EXECUTE based on plan presence")
-                elif "final_response" in decision_data and decision_data.get("final_response"):
-                    decision_type = "GENERATE_RESPONSE"
-                    state["thinking_steps"].append("🔧 Inferred decision_type as GENERATE_RESPONSE based on final_response presence")
-                else:
-                    decision_type = "PLAN_AND_EXECUTE"
-                    state["thinking_steps"].append("🔧 Defaulting to PLAN_AND_EXECUTE")
-
-            state["thinking_steps"].append(f"📋 Decision received: {decision_type}")
-            state["thinking_steps"].append(f"💭 Reasoning: {reasoning}")
-
-            if decision_type == "GENERATE_RESPONSE":
-                # Generate final response
-                state["thinking_steps"].append("✨ Sufficient information available - generating final response")
-                final_response = decision_data.get("final_response", "")
-                if not final_response:
-                    raise ValueError("Final response is empty")
-
-                state["final_response_content"] = final_response
-                state["final_response_generated_flag"] = True
-                state["thinking_steps"].append("✅ Final response generated successfully")
-                state["thinking_steps"].append("💾 Saving conversation to history")
-
-                # Save conversation history using helper function
-                save_conversation_turn(state, final_response)
-
-            elif decision_type in ["PLAN_AND_EXECUTE", "EXECUTE_NEXT_STEP"]:
-                # Update plan
-                state["thinking_steps"].append("📝 Need more information - creating execution plan")
-                plan_data = decision_data.get("plan", [])
-                if plan_data:
-                    state["thinking_steps"].append(f"🔧 Received plan with {len(plan_data)} steps")
-
-                    # Convert to PlanStep objects
-                    plan_steps = []
-                    for i, step_data in enumerate(plan_data):
-                        step = PlanStep(
-                            step_number=step_data.get("step_number", i + 1),
-                            step_type=step_data.get("step_type", "REASONING_STEP"),
-                            description=step_data.get("description", ""),
-                            tool_name=step_data.get("tool_name"),
-                            tool_arguments=step_data.get("tool_arguments"),
-                            reasoning_content=step_data.get("reasoning_content")
-                        )
-                        plan_steps.append(step)
-
-                        # Show planned step for transparency
-                        if step.step_type == "TOOL_CALL":
-                            state["thinking_steps"].append(f"  📋 Step {i+1}: {step.tool_name} - {step.description}")
-                        else:
-                            state["thinking_steps"].append(f"  🧠 Step {i+1}: {step.description}")
-
-                    state["plan"] = plan_steps
-                    state["current_step_index"] = 0
-                    state["thinking_steps"].append("✅ Execution plan created - ready to begin")
-                else:
-                    state["thinking_steps"].append("❌ Decision to plan but no plan provided")
-                    state["error_message"] = "Decision to plan but no plan provided"
-            else:
-                state["thinking_steps"].append(f"❌ Unknown decision type: {decision_type}")
-                state["plan"] = [
-                    PlanStep(
-                        step_number=1,
-                        step_type="REASONING_STEP",
-                        description="Generate response with available information",
-                        reasoning_content="Provide best response with current data"
-                    )
-                ]
-                state["current_step_index"] = 0
-                state["thinking_steps"].append("✅ Fallback plan created")
-
-        except (json.JSONDecodeError, ValueError, KeyError) as e:
-            logger.error(f"Error parsing decision response: {e}")
-            logger.error(f"Response preview: {response[:200]}")
-
-            state["thinking_steps"].append(f"⚠️ Error parsing AI decision: {str(e)}")
-            state["thinking_steps"].append("🔄 Creating fallback plan")
-
-            # Create fallback plan with available tools (TOOL_CALL only)
-            first_tool = next((tool["name"] for tool in state.get("available_tools", [])
-                             if tool["name"] in state.get("enabled_tools", [])), None)
-
-            if first_tool:
-                state["plan"] = [
-                    PlanStep(
-                        step_number=1,
-                        step_type="TOOL_CALL",
-                        description="Search for information",
-                        tool_name=first_tool,
-                        tool_arguments={"query": state["input"], "size": 10}
-                    )
-                ]
-                state["current_step_index"] = 0
-                state["thinking_steps"].append(f"✅ Fallback plan created with {first_tool}")
-            else:
-                # No tools available, skip to response generation
-                state["plan"] = []
-                state["thinking_steps"].append("⚠️ No enabled tools available for fallback plan")
-
-    except Exception as e:
-        logger.error(f"Error in unified planning decision: {e}")
-        state["thinking_steps"].append(f"❌ Critical error in planning: {str(e)}")
-        state["error_message"] = f"Failed in unified planning: {str(e)}"
 
     # Always update the iteration count
     state["current_turn_iteration_count"] = current_iteration
+
+    # This node is kept for compatibility but is now simplified
+    # The actual workflow is: discover_tools -> create_execution_plan -> execute_tasks -> gather_and_synthesize
     return state
 
 

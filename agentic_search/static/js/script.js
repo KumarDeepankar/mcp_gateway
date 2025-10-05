@@ -23,6 +23,7 @@ class AgenticSearch {
         this.messageInput = document.getElementById('message-input');
         this.sendButton = document.getElementById('send-button');
         this.newSearchInputBtn = document.getElementById('new-search-input-btn');
+        this.inputArea = document.getElementById('input-area');
         this.sidebar = document.getElementById('left-sidebar');
         this.searchBranding = document.getElementById('search-branding-container');
         this.mainContent = document.getElementById('chat-main-content');
@@ -35,7 +36,15 @@ class AgenticSearch {
         // Sidebar toggle
         this.sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
         this.sidebarOverlay = document.getElementById('sidebar-overlay');
-        this.sidebarVisible = true; // Track sidebar state
+        this.sidebarVisible = false; // Start collapsed by default
+
+        // Set initial centered state
+        this.inputArea.classList.add('centered');
+
+        // Set sidebar to hidden initially
+        this.sidebar.classList.add('sidebar-hidden');
+        this.sidebar.classList.remove('sidebar-visible');
+        this.mainContent.classList.add('sidebar-hidden');
     }
 
     setupEventListeners() {
@@ -49,7 +58,11 @@ class AgenticSearch {
         });
 
         // Processing toggle
-        this.processingToggleButton.addEventListener('click', () => this.toggleProcessingDisplay());
+        console.log('Setting up processing toggle button:', this.processingToggleButton);
+        this.processingToggleButton.addEventListener('click', () => {
+            console.log('Processing toggle button clicked');
+            this.toggleProcessingDisplay();
+        });
 
         // Sidebar toggle button
         this.sidebarToggleBtn.addEventListener('click', () => this.toggleSidebar());
@@ -77,7 +90,9 @@ class AgenticSearch {
     }
 
     toggleProcessingDisplay() {
+        console.log('toggleProcessingDisplay called');
         this.showThinking = !this.showThinking;
+        console.log('New showThinking value:', this.showThinking);
 
         // Update button text
         const label = this.processingToggleButton.querySelector('.tool-label');
@@ -89,7 +104,20 @@ class AgenticSearch {
             chain.style.display = this.showThinking ? 'block' : 'none';
         });
 
+        // Adjust input area position when in bottom state
+        if (this.inputArea.classList.contains('bottom')) {
+            // Wait for layout to update and reflow
+            setTimeout(() => {
+                this.adjustInputAreaPosition();
+            }, 100);
+        }
+
         this.saveSettings();
+    }
+
+    adjustInputAreaPosition() {
+        // CSS handles positioning with margin-top: 20px
+        // No JavaScript adjustment needed
     }
 
     toggleSidebar() {
@@ -125,6 +153,10 @@ class AgenticSearch {
         this.showSearchBranding();
         this.messageInput.placeholder = "Enter your search query..."; // Reset placeholder
         this.newSearchInputBtn.classList.remove('visible'); // Hide the button
+
+        // Move input back to center
+        this.inputArea.classList.remove('bottom');
+        this.inputArea.classList.add('centered');
     }
 
     clearChat() {
@@ -221,6 +253,12 @@ class AgenticSearch {
         const query = this.messageInput.value.trim();
         if (!query || this.isSearching) return;
 
+        // Move input to bottom on first search
+        if (this.inputArea.classList.contains('centered')) {
+            this.inputArea.classList.remove('centered');
+            this.inputArea.classList.add('bottom');
+        }
+
         this.hideSearchBranding();
         this.isSearching = true;
         this.sendButton.disabled = true;
@@ -275,6 +313,11 @@ class AgenticSearch {
                 this.messageInput.placeholder = "Ask a follow-up question...";
                 this.newSearchInputBtn.classList.add('visible');
             }
+
+            // Adjust input area position if processing steps are hidden
+            setTimeout(() => {
+                this.adjustInputAreaPosition();
+            }, 300);
         }
     }
 
@@ -369,6 +412,9 @@ class AgenticSearch {
         targetContainer.appendChild(messageDiv);
         this.scrollToBottom();
 
+        // Adjust input position after adding message
+        setTimeout(() => this.adjustInputAreaPosition(), 50);
+
         return contentDiv; // Return for appending to streaming messages
     }
 
@@ -382,6 +428,9 @@ class AgenticSearch {
             messageElement.textContent += content;
         }
         this.scrollToBottom();
+
+        // Adjust input position after appending content
+        setTimeout(() => this.adjustInputAreaPosition(), 50);
     }
 
     // Removed follow-up button - now using input placeholder only
@@ -399,6 +448,9 @@ class AgenticSearch {
         }
 
         const chainSteps = stepChain.querySelector('.chain-steps');
+
+        // Adjust input position after adding content
+        setTimeout(() => this.adjustInputAreaPosition(), 50);
         const progressElement = document.createElement('div');
         progressElement.classList.add('chain-progress');
 

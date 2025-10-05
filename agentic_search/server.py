@@ -103,8 +103,9 @@ async def search_interaction_stream(session_id: str, query: str, enabled_tools: 
         relevant_node_names = [
             "initialize_search_node",
             "discover_tools_node",
-            "unified_planning_decision_node",
-            "execute_tool_step_node"
+            "create_execution_plan_node",
+            "execute_all_tasks_parallel_node",
+            "gather_and_synthesize_node"
         ]
 
         final_response_started = False
@@ -144,9 +145,22 @@ async def search_interaction_stream(session_id: str, query: str, enabled_tools: 
                             yield f"FINAL_RESPONSE_START:\n"
                             await asyncio.sleep(0.01)
 
-                            if "final_response_content" in node_output:
+                            # Handle new FinalResponse structure
+                            final_response_obj = node_output.get("final_response")
+                            final_response = ""
+
+                            if final_response_obj:
+                                # Extract response_content from FinalResponse object
+                                if hasattr(final_response_obj, 'response_content'):
+                                    final_response = final_response_obj.response_content
+                                elif isinstance(final_response_obj, dict):
+                                    final_response = final_response_obj.get('response_content', '')
+
+                            # Fallback to old field name for compatibility
+                            if not final_response and "final_response_content" in node_output:
                                 final_response = node_output.get("final_response_content", "")
-                                if final_response:
+
+                            if final_response:
                                     # Check if response contains HTML
                                     if '<' in final_response and '>' in final_response:
                                         # Send HTML content in larger chunks to preserve formatting

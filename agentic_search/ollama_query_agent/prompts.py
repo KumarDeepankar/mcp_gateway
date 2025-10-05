@@ -41,6 +41,39 @@ def format_conversation_context(conversation_history: List[Dict[str, Any]], max_
     return f"\nConversation Context:\n{json.dumps(context, indent=2)}"
 
 
+def create_multi_task_planning_prompt(
+    user_query: str,
+    enabled_tools: List[Dict[str, Any]],
+    conversation_history: List[Dict[str, Any]] = None
+) -> str:
+    """Create a prompt for multi-task planning phase"""
+
+    # Simplified tool info - just names and basic schema
+    tool_summary = []
+    for tool in enabled_tools[:3]:  # Limit to first 3 tools to avoid overwhelming
+        tool_summary.append({
+            "name": tool.get("name"),
+            "params": list(tool.get("inputSchema", {}).get("properties", {}).keys())
+        })
+
+    return f"""Create a task execution plan for this query: "{user_query}"
+
+Available tools: {json.dumps(tool_summary)}
+
+Create 2-3 tasks that use these tools with different parameters.
+
+Output format (JSON only, no markdown):
+{{"reasoning":"brief reason","tasks":[{{"task_number":1,"tool_name":"search_stories","tool_arguments":{{"query":"search term","size":10}},"description":"what task does"}},{{"task_number":2,"tool_name":"search_stories","tool_arguments":{{"query":"other term","size":5}},"description":"what task does"}}]}}
+
+Rules:
+- Reuse tools with different parameters
+- Each task: task_number, tool_name, tool_arguments, description
+- Valid JSON only, no explanations outside JSON
+- Start {{ end }}
+
+Generate plan:"""
+
+
 def create_unified_planning_decision_prompt(
     user_query: str,
     tool_results: List[Dict[str, Any]],
@@ -96,46 +129,66 @@ Available Tools:
 {json.dumps(enabled_tool_info, indent=2)}
 
 DECISION TYPES:
-1. "PLAN_AND_EXECUTE" - Create plan with TOOL_CALL steps only
-2. "GENERATE_RESPONSE" - Generate final response when you have sufficient information
+1. "CREATE_PLAN" - Create multi-task execution plan (when no plan exists)
+2. "GENERATE_RESPONSE" - Generate final response when all tasks are completed
 
 CRITICAL REQUIREMENTS:
 - Respond with valid JSON only
-- ONLY use TOOL_CALL step type (NO reasoning steps, NO other types)
-- Every step MUST have a tool_name from the available tools list
-- Use tools before generating final response when possible
-- Only choose GENERATE_RESPONSE when you have tool results that answer the query
+- If no tool results exist, choose CREATE_PLAN
+- If tool results exist from completed tasks, choose GENERATE_RESPONSE
+- Plan should have multiple tasks that reuse tools with different parameters
 
-Response format for planning (ONLY TOOL_CALL steps allowed):
+Response format for planning:
 {{
-    "decision_type": "PLAN_AND_EXECUTE",
-    "reasoning": "Need to gather information using tools",
-    "plan": [
-        {{
-            "step_number": 1,
-            "step_type": "TOOL_CALL",
-            "description": "Search for information",
-            "tool_name": "search_stories",
-            "tool_arguments": {{"query": "search terms", "size": 10}}
-        }},
-        {{
-            "step_number": 2,
-            "step_type": "TOOL_CALL",
-            "description": "Fetch additional data",
-            "tool_name": "fetch_news",
-            "tool_arguments": {{"topic": "AI"}}
-        }}
-    ]
+    "decision_type": "CREATE_PLAN",
+    "reasoning": "Need to gather information using multiple tasks"
 }}
 
 Response format for final answer:
 {{
     "decision_type": "GENERATE_RESPONSE",
-    "reasoning": "Have sufficient information from tools",
-    "final_response": "<div style='font-family: sans-serif; color: #333;'><h3>Results</h3><p>Answer based on tool results...</p></div>"
+    "reasoning": "Have sufficient information from completed tasks",
+    "response_content": "<div style='font-family: sans-serif; color: #333;'><h3>Results</h3><p>Answer based on gathered information...</p></div>"
 }}
 
 Generate valid JSON:"""
+
+
+def create_information_synthesis_prompt(
+    user_query: str,
+    gathered_information: Dict[str, Any],
+    conversation_history: List[Dict[str, Any]] = None
+) -> str:
+    """Create a prompt for synthesizing gathered information and generating final response"""
+
+    # Add conversation history context if available
+    context_section = format_conversation_context(conversation_history, max_turns=2)
+
+    # Compact the gathered information
+    task_summaries = []
+    for task in gathered_information.get("task_results", [])[:2]:  # First 2 tasks only
+        task_summaries.append({
+            "tool": task.get("tool_name"),
+            "result": str(task.get("result", ""))[:200]  # Limit result size
+        })
+
+    return f"""Answer query: "{user_query}"
+
+Data from tasks: {json.dumps(task_summaries)}
+
+Generate JSON with "reasoning" and "response_content" (HTML).
+
+Format:
+{{"reasoning":"analyzed data","response_content":"<div style=\\"color:#333\\"><h3>Answer</h3><p>Content here</p></div>"}}
+
+Rules:
+- Use task data only
+- Escape quotes in HTML (\\" not ')
+- Single line HTML
+- No newlines in strings
+- JSON only
+
+Output:"""
 
 
 def create_reasoning_response_prompt(
