@@ -321,13 +321,13 @@ async def initialize_search_node(state: SearchAgentState) -> SearchAgentState:
     state["is_followup_query"] = state.get("is_followup_query", False)
 
     # Enhanced thinking steps for streaming UI
-    state["thinking_steps"].append("🚀 Initializing Multi-Task Agentic Search")
-    state["thinking_steps"].append(f"📝 Query: '{state['input']}'")
+    state["thinking_steps"].append("Initializing Multi-Task Agentic Search")
+    state["thinking_steps"].append(f"Query: '{state['input']}'")
 
     if state["is_followup_query"]:
-        state["thinking_steps"].append("🔄 Followup query detected - loading conversation context")
+        state["thinking_steps"].append("Followup query detected - loading conversation context")
         if state["conversation_history"]:
-            state["thinking_steps"].append(f"📚 Found {len(state['conversation_history'])} previous conversation turns")
+            state["thinking_steps"].append(f"Found {len(state['conversation_history'])} previous conversation turns")
             if state["conversation_history"]:
                 latest = state["conversation_history"][-1]
                 preview = latest.get("response", "")[:100] + "..." if len(
@@ -336,7 +336,7 @@ async def initialize_search_node(state: SearchAgentState) -> SearchAgentState:
     else:
         state["thinking_steps"].append("🆕 Fresh search session started")
 
-    state["thinking_steps"].append("✅ Search session initialized - ready for multi-task planning")
+    state["thinking_steps"].append("Search session initialized - ready for multi-task planning")
 
     print(f"[DEBUG initialize_search_node] conversation_history: {state['conversation_history']}")
     print(f"[DEBUG initialize_search_node] is_followup_query: {state['is_followup_query']}")
@@ -349,16 +349,16 @@ async def discover_tools_node(state: SearchAgentState) -> SearchAgentState:
     """Discover available tools from MCP registry"""
     logger.info("Discovering available tools from MCP registry")
 
-    state["thinking_steps"].append("🔍 Connecting to MCP Registry...")
-    state["thinking_steps"].append("📡 Querying available tools from port 8021")
+    state["thinking_steps"].append("Connecting to MCP Registry...")
+    state["thinking_steps"].append("Querying available tools from port 8021")
 
     try:
         # Fetch available tools
-        state["thinking_steps"].append("⏳ Fetching tool definitions...")
+        state["thinking_steps"].append("Fetching tool definitions...")
         available_tools = await mcp_tool_client.get_available_tools()
         state["available_tools"] = available_tools
 
-        state["thinking_steps"].append(f"📊 Discovered {len(available_tools)} tools from MCP registry")
+        state["thinking_steps"].append(f"Discovered {len(available_tools)} tools from MCP registry")
 
         # Show discovered tools for visibility
         if available_tools:
@@ -369,16 +369,16 @@ async def discover_tools_node(state: SearchAgentState) -> SearchAgentState:
         # If no enabled tools specified, use all available tools
         if not state.get("enabled_tools"):
             state["enabled_tools"] = [tool.get("name", "") for tool in available_tools]
-            state["thinking_steps"].append("⚙️ No specific tool selection - enabling all available tools")
+            state["thinking_steps"].append("No specific tool selection - enabling all available tools")
         else:
-            state["thinking_steps"].append(f"🎯 User-selected tools: {', '.join(state['enabled_tools'])}")
+            state["thinking_steps"].append(f"User-selected tools: {', '.join(state['enabled_tools'])}")
 
-        state["thinking_steps"].append("✅ Tool discovery completed successfully")
+        state["thinking_steps"].append("Tool discovery completed successfully")
 
     except Exception as e:
         logger.error(f"Error discovering tools: {e}")
         state["thinking_steps"].append(f"❌ Tool discovery failed: {str(e)}")
-        state["thinking_steps"].append("🔄 Continuing with empty tool set")
+        state["thinking_steps"].append("Continuing with empty tool set")
         state["error_message"] = f"Failed to discover tools: {str(e)}"
         state["available_tools"] = []
         state["enabled_tools"] = []
@@ -390,8 +390,8 @@ async def create_execution_plan_node(state: SearchAgentState) -> SearchAgentStat
     """Create a multi-task execution plan"""
     logger.info("Creating multi-task execution plan")
 
-    state["thinking_steps"].append("🎯 Creating Multi-Task Execution Plan")
-    state["thinking_steps"].append("📊 Analyzing query to identify required tasks")
+    state["thinking_steps"].append("Creating Multi-Task Execution Plan")
+    state["thinking_steps"].append("Analyzing query to identify required tasks")
 
     try:
         # Filter to only enabled tools
@@ -434,7 +434,7 @@ Output JSON now:"""
         except Exception as e:
             logger.error(f"Failed to parse plan JSON: {e}")
             logger.error(f"Response: {response[:300]}")
-            state["thinking_steps"].append(f"⚠️ JSON parsing failed, creating fallback plan")
+            state["thinking_steps"].append(f"JSON parsing failed, creating fallback plan")
 
             # Create a simple fallback plan with one task
             enabled_tool_names = state.get("enabled_tools", [])
@@ -475,8 +475,8 @@ Output JSON now:"""
         state["execution_plan"] = execution_plan
         state["current_task_index"] = 0
 
-        state["thinking_steps"].append(f"📋 Created plan with {len(tasks)} tasks")
-        state["thinking_steps"].append(f"💭 Plan reasoning: {execution_plan.reasoning}")
+        state["thinking_steps"].append(f"Created plan with {len(tasks)} tasks")
+        state["thinking_steps"].append(f"Plan reasoning: {execution_plan.reasoning}")
 
         for i, task in enumerate(tasks):
             state["thinking_steps"].append(f"  Task {i+1}: {task.tool_name} - {task.description}")
@@ -506,13 +506,13 @@ async def execute_task_node(state: SearchAgentState) -> SearchAgentState:
 
         state["thinking_steps"].append(f"🔧 Executing Task {current_index + 1}/{len(execution_plan.tasks)}")
         state["thinking_steps"].append(f"🛠️ Tool: {current_task.tool_name}")
-        state["thinking_steps"].append(f"📝 Purpose: {current_task.description}")
+        state["thinking_steps"].append(f"Purpose: {current_task.description}")
 
         # Add argument details
         if current_task.tool_arguments:
             arg_summary = ", ".join([f"{k}={str(v)[:50]}..." if len(str(v)) > 50 else f"{k}={v}"
                                      for k, v in current_task.tool_arguments.items()])
-            state["thinking_steps"].append(f"📋 Parameters: {arg_summary}")
+            state["thinking_steps"].append(f"Parameters: {arg_summary}")
 
         # Call the tool via MCP
         result = await mcp_tool_client.call_tool(
@@ -525,8 +525,8 @@ async def execute_task_node(state: SearchAgentState) -> SearchAgentState:
         current_task.status = "completed"
 
         # Add FULL result for debugging (no truncation)
-        state["thinking_steps"].append(f"✅ Task completed successfully")
-        state["thinking_steps"].append(f"📊 Full Result: {str(result)}")
+        state["thinking_steps"].append(f"Task completed successfully")
+        state["thinking_steps"].append(f"Full Result: {str(result)}")
 
         # Move to next task
         state["current_task_index"] = current_index + 1
@@ -535,7 +535,7 @@ async def execute_task_node(state: SearchAgentState) -> SearchAgentState:
         logger.error(f"Error executing task: {e}")
         current_task.status = "failed"
         current_task.result = {"error": str(e)}
-        state["thinking_steps"].append(f"❌ Task failed: {str(e)}")
+        state["thinking_steps"].append(f"Task failed: {str(e)}")
         state["error_message"] = f"Task execution failed: {str(e)}"
 
     return state
@@ -554,8 +554,8 @@ async def execute_all_tasks_parallel_node(state: SearchAgentState) -> SearchAgen
     tasks = execution_plan.tasks
     total_tasks = len(tasks)
 
-    state["thinking_steps"].append(f"🚀 Starting parallel execution of {total_tasks} tasks")
-    state["thinking_steps"].append(f"⚡ Tasks will execute concurrently for faster results")
+    state["thinking_steps"].append(f"Starting parallel execution of {total_tasks} tasks")
+    state["thinking_steps"].append(f"Tasks will execute concurrently for faster results")
 
     async def execute_single_task(task: Task, task_index: int) -> tuple[int, Task]:
         """Execute a single task and return its index and updated task"""
@@ -588,7 +588,7 @@ async def execute_all_tasks_parallel_node(state: SearchAgentState) -> SearchAgen
     ]
 
     # Execute all tasks in parallel using asyncio.gather
-    state["thinking_steps"].append(f"⏳ Executing {total_tasks} tasks concurrently...")
+    state["thinking_steps"].append(f"Executing {total_tasks} tasks concurrently...")
 
     try:
         # Use asyncio.gather to run all tasks in parallel
@@ -611,7 +611,7 @@ async def execute_all_tasks_parallel_node(state: SearchAgentState) -> SearchAgen
                     state["thinking_steps"].append(
                         f"✅ Task {task_index + 1}: {updated_task.tool_name} - {updated_task.description}"
                     )
-                    state["thinking_steps"].append(f"📊 Full Result: {str(updated_task.result)}")
+                    state["thinking_steps"].append(f"Full Result: {str(updated_task.result)}")
                 else:
                     failed_count += 1
                     state["thinking_steps"].append(
@@ -639,8 +639,8 @@ async def gather_and_synthesize_node(state: SearchAgentState) -> SearchAgentStat
     """Gather all task results and synthesize into final response"""
     logger.info("Gathering information and synthesizing response")
 
-    state["thinking_steps"].append("🧠 Information Synthesis Phase")
-    state["thinking_steps"].append("📊 Gathering results from all completed tasks")
+    state["thinking_steps"].append("Information Synthesis Phase")
+    state["thinking_steps"].append("Gathering results from all completed tasks")
 
     try:
         execution_plan = state.get("execution_plan")
@@ -670,11 +670,11 @@ async def gather_and_synthesize_node(state: SearchAgentState) -> SearchAgentStat
         )
 
         state["gathered_information"] = gathered_info
-        state["thinking_steps"].append(f"✅ Gathered results from {len(task_results)} completed tasks")
-        state["thinking_steps"].append(f"📚 Sources used: {', '.join(sources_used)}")
+        state["thinking_steps"].append(f"Gathered results from {len(task_results)} completed tasks")
+        state["thinking_steps"].append(f"Sources used: {', '.join(sources_used)}")
 
         # Now synthesize the information
-        state["thinking_steps"].append("🤖 Synthesizing information into comprehensive response...")
+        state["thinking_steps"].append("Synthesizing information into comprehensive response...")
 
         # Prepare gathered information for synthesis
         synthesis_data = {
@@ -706,7 +706,7 @@ Example:
 Output valid JSON now:"""
 
         response = await ollama_client.generate_response(prompt, system_prompt)
-        state["thinking_steps"].append("✅ Received synthesis response")
+        state["thinking_steps"].append("Received synthesis response")
 
         # Parse the response with enhanced error handling
         try:
@@ -726,8 +726,8 @@ Output valid JSON now:"""
             state["final_response"] = final_response
             state["final_response_generated_flag"] = True
 
-            state["thinking_steps"].append("✅ Final response generated successfully")
-            state["thinking_steps"].append(f"💭 Synthesis reasoning: {final_response.reasoning[:100]}...")
+            state["thinking_steps"].append("Final response generated successfully")
+            state["thinking_steps"].append(f"Synthesis reasoning: {final_response.reasoning[:100]}...")
 
             # Save conversation history
             save_conversation_turn(state, final_response.response_content)
@@ -782,16 +782,16 @@ async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgent
     current_iteration = state.get("current_turn_iteration_count", 0) + 1
     max_iterations = state.get("max_turn_iterations", 5)
 
-    logger.info(f"🤔 Planning iteration {current_iteration}/{max_iterations}")
+    logger.info(f"Planning iteration {current_iteration}/{max_iterations}")
 
     # Enhanced thinking steps for planning visibility
-    state["thinking_steps"].append(f"🤔 Planning & Decision Phase - Iteration {current_iteration}/{max_iterations}")
-    state["thinking_steps"].append("📊 Analyzing current information gathered...")
+    state["thinking_steps"].append(f"Planning & Decision Phase - Iteration {current_iteration}/{max_iterations}")
+    state["thinking_steps"].append("Analyzing current information gathered...")
 
     # Show current state for transparency
     execution_plan = state.get("execution_plan")
     has_plan = execution_plan is not None
-    state["thinking_steps"].append(f"📋 Execution plan exists: {has_plan}")
+    state["thinking_steps"].append(f"Execution plan exists: {has_plan}")
 
     if current_iteration > max_iterations:
         logger.info(f"⏰ Reached iteration limit ({max_iterations})")
