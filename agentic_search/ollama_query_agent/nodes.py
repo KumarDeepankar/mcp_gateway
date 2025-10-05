@@ -67,66 +67,83 @@ def clean_json_response(response: str) -> str:
     # Remove any control characters except standard whitespace
     response = ''.join(char for char in response if ord(char) >= 32 or char in ['\n', '\r', '\t'])
 
-    # Remove single-line comments (// ...)
+    # Remove single-line comments (// ...) - but only outside of strings
     response = re.sub(r'//.*$', '', response, flags=re.MULTILINE)
 
-    # Remove multi-line comments (/* ... */)
+    # Remove multi-line comments (/* ... */) - but only outside of strings
     response = re.sub(r'/\*.*?\*/', '', response, flags=re.DOTALL)
 
-    # Fix unescaped newlines inside strings (common issue with HTML content)
-    # This is a simplified approach - find strings and escape newlines
-    def escape_newlines_in_strings(match):
-        content = match.group(1)
-        # Escape unescaped newlines
-        content = content.replace('\n', '\\n').replace('\r', '\\r').replace('\t', '\\t')
-        return f'"{content}"'
-
-    # Be careful with this - only process simple string patterns
-    # Don't process strings that already have escape sequences
-    response = re.sub(r'"([^"\\]*(?:\\.[^"\\]*)*)"', lambda m: m.group(0), response)
-
-    # Fix HTML attributes with single quotes - convert to escaped double quotes
-    # Pattern: attribute='value' -> attribute=\"value\"
-    def fix_html_attributes(match):
-        full_match = match.group(0)
-        attr_name = match.group(1)
-        attr_value = match.group(2)
-        # Replace with escaped double quotes
-        return f'{attr_name}=\\"{attr_value}\\"'
-
-    # Find HTML attributes with single quotes
-    response = re.sub(r'(\w+)=\'([^\']+)\'', fix_html_attributes, response)
-
-    # Remove trailing commas before closing brackets/braces (more aggressive)
+    # Remove trailing commas before closing brackets/braces
     response = re.sub(r',(\s*[}\]])', r'\1', response)
     response = re.sub(r',(\s*[}\]])', r'\1', response)  # Run twice to catch nested cases
 
-    # Fix missing quotes around keys (common LLM mistake) - only if not already quoted
-    response = re.sub(r'([^"]|^)(\w+)(\s*:\s*)', r'\1"\2"\3', response)
+    # Fix missing quotes around keys - but ONLY for actual keys, not inside string values
+    # Strategy: Split by string boundaries and only process non-string parts
+    def fix_unquoted_keys(json_text):
+        """Fix unquoted keys while preserving string contents"""
+        result = []
+        in_string = False
+        escape_next = False
+        i = 0
 
-    # Fix single quotes to double quotes for JSON structure
-    # First, handle the outer JSON structure (keys and simple values)
-    # Replace single quotes around keys
+        while i < len(json_text):
+            char = json_text[i]
+
+            if escape_next:
+                result.append(char)
+                escape_next = False
+                i += 1
+                continue
+
+            if char == '\\':
+                result.append(char)
+                escape_next = True
+                i += 1
+                continue
+
+            if char == '"':
+                in_string = not in_string
+                result.append(char)
+                i += 1
+                continue
+
+            # Only process non-string regions
+            if not in_string:
+                # Look for pattern: word characters followed by colon (unquoted key)
+                match = re.match(r'(\s*)(\w+)(\s*:\s*)', json_text[i:])
+                if match:
+                    # Check if preceded by quote or opening brace/bracket (valid key position)
+                    if not result or result[-1] in ['{', '[', ',', '\n', ' ', '\t']:
+                        # This looks like an unquoted key, quote it
+                        result.append(match.group(1))  # whitespace
+                        result.append('"')
+                        result.append(match.group(2))  # key name
+                        result.append('"')
+                        result.append(match.group(3))  # colon and whitespace
+                        i += len(match.group(0))
+                        continue
+
+            result.append(char)
+            i += 1
+
+        return ''.join(result)
+
+    response = fix_unquoted_keys(response)
+
+    # Fix single quotes to double quotes for JSON keys and simple values
+    # Replace single quotes around keys: 'key': -> "key":
     response = re.sub(r"'(\w+)'(\s*:)", r'"\1"\2', response)
 
-    # For string values with single quotes, we need to be more careful
-    # Replace single quotes that wrap values (but not quotes inside HTML)
-    # This is tricky - let's use a more conservative approach
+    # Fix HTML attributes with single quotes - convert to escaped double quotes
+    # Pattern: attribute='value' -> attribute=\"value\"
+    # Only do this inside string values that contain HTML
+    def fix_html_attributes(match):
+        attr_name = match.group(1)
+        attr_value = match.group(2)
+        return f'{attr_name}=\\"{attr_value}\\"'
 
-    # Replace single quotes that appear to be JSON string delimiters
-    # Pattern: : 'value' or : 'value with spaces'
-    def replace_single_quote_values(match):
-        content = match.group(1)
-        # If content contains HTML tags or is complex, keep the single quotes escaped
-        if '<' in content or '>' in content:
-            # This is HTML content - replace outer single quotes with double quotes
-            # but keep internal quotes as-is for now
-            return f': "{content}"'
-        else:
-            # Simple value - just replace quotes
-            return f': "{content}"'
-
-    response = re.sub(r":\s*'([^']*)'", replace_single_quote_values, response)
+    # This pattern should only match inside JSON string values
+    response = re.sub(r'(\w+)=\'([^\']+)\'', fix_html_attributes, response)
 
     # Fix common boolean/null values
     response = re.sub(r'\btrue\b', 'true', response, flags=re.IGNORECASE)
@@ -160,8 +177,10 @@ def validate_json_structure(json_str: str) -> bool:
         if open_brackets != close_brackets:
             return False
 
-        # Count quotes (should be even)
-        quote_count = json_str.count('"')
+        # Count unescaped quotes (should be even)
+        # Remove escaped quotes temporarily for counting
+        temp_str = json_str.replace(r'\"', '')
+        quote_count = temp_str.count('"')
         if quote_count % 2 != 0:
             return False
 
