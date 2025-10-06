@@ -285,7 +285,7 @@ def extract_json_from_response(response: str) -> dict:
             return json.loads(json_str)
         except json.JSONDecodeError as e:
             print(f"[DEBUG] JSON decode failed at position {e.pos}")
-            print(f"[DEBUG] Context around error: {json_str[max(0, e.pos-50):min(len(json_str), e.pos+50)]}")
+            print(f"[DEBUG] Context around error: {json_str[max(0, e.pos - 50):min(len(json_str), e.pos + 50)]}")
             raise
 
     except json.JSONDecodeError as e:
@@ -498,7 +498,7 @@ Output JSON now:"""
         state["thinking_steps"].append(f"Plan reasoning: {execution_plan.reasoning}")
 
         for i, task in enumerate(tasks):
-            state["thinking_steps"].append(f"  Task {i+1}: {task.tool_name} - {task.description}")
+            state["thinking_steps"].append(f"  Task {i + 1}: {task.tool_name} - {task.description}")
 
     except Exception as e:
         logger.error(f"Error creating execution plan: {e}")
@@ -793,55 +793,6 @@ Output valid JSON now:"""
         state["final_response_generated_flag"] = True
         save_conversation_turn(state, fallback_response)
 
-    return state
-
-
-async def unified_planning_decision_node(state: SearchAgentState) -> SearchAgentState:
-    """Unified node that handles planning, decision-making, and response generation"""
-    current_iteration = state.get("current_turn_iteration_count", 0) + 1
-    max_iterations = state.get("max_turn_iterations", 5)
-
-    logger.info(f"Planning iteration {current_iteration}/{max_iterations}")
-
-    # Enhanced thinking steps for planning visibility
-    state["thinking_steps"].append(f"Planning & Decision Phase - Iteration {current_iteration}/{max_iterations}")
-    state["thinking_steps"].append("Analyzing current information gathered...")
-
-    # Show current state for transparency
-    execution_plan = state.get("execution_plan")
-    has_plan = execution_plan is not None
-    state["thinking_steps"].append(f"Execution plan exists: {has_plan}")
-
-    if current_iteration > max_iterations:
-        logger.info(f"⏰ Reached iteration limit ({max_iterations})")
-        state["thinking_steps"].append(f"⏰ Reached maximum iterations ({max_iterations})")
-        state["thinking_steps"].append("📝 Generating summary response with available information")
-
-        try:
-            # Force synthesis with whatever we have
-            return await gather_and_synthesize_node(state)
-        except Exception as e:
-            logger.error(f"Error generating summary: {str(e)}")
-            final_response_content = generate_final_response_from_available_data(state)
-            final_response = FinalResponse(
-                response_content=final_response_content,
-                reasoning="Fallback response due to iteration limit",
-                information_used=state.get("gathered_information")
-            )
-            state["final_response"] = final_response
-            state["final_response_generated_flag"] = True
-            state["current_turn_iteration_count"] = current_iteration
-
-            # Save conversation history
-            save_conversation_turn(state, final_response_content)
-
-            return state
-
-    # Always update the iteration count
-    state["current_turn_iteration_count"] = current_iteration
-
-    # This node is kept for compatibility but is now simplified
-    # The actual workflow is: discover_tools -> create_execution_plan -> execute_tasks -> gather_and_synthesize
     return state
 
 

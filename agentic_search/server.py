@@ -31,10 +31,12 @@ CHAT_HTML_FILE = os.path.join(BASE_DIR, "chat.html")
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "service": "agentic-search"}
+
 
 @app.get("/", response_class=HTMLResponse)
 async def get_chat_html():
@@ -48,6 +50,7 @@ async def get_chat_html():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not load chat interface: {e}")
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -55,6 +58,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 @app.get("/tools")
 async def get_available_tools():
@@ -65,13 +69,16 @@ async def get_available_tools():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching tools: {str(e)}")
 
+
 class SearchRequest(BaseModel):
     query: str
     enabled_tools: Optional[List[str]] = None
     session_id: Optional[str] = None
     is_followup: Optional[bool] = False
 
-async def search_interaction_stream(session_id: str, query: str, enabled_tools: List[str], is_followup: bool = False) -> AsyncGenerator[str, None]:
+
+async def search_interaction_stream(session_id: str, query: str, enabled_tools: List[str], is_followup: bool = False) -> \
+AsyncGenerator[str, None]:
     """Stream search agent interaction"""
 
     try:
@@ -161,23 +168,23 @@ async def search_interaction_stream(session_id: str, query: str, enabled_tools: 
                                 final_response = node_output.get("final_response_content", "")
 
                             if final_response:
-                                    # Check if response contains HTML
-                                    if '<' in final_response and '>' in final_response:
-                                        # Send HTML content in larger chunks to preserve formatting
-                                        yield f"HTML_CONTENT_START:\n"
-                                        await asyncio.sleep(0.01)
-                                        yield final_response
-                                        yield f"\nHTML_CONTENT_END:\n"
-                                    else:
-                                        # Simulate streaming by chunking the response for plain text
-                                        words = final_response.split()
-                                        for i in range(0, len(words), 3):  # Send 3 words at a time
-                                            chunk = " ".join(words[i:i+3])
-                                            if i + 3 < len(words):
-                                                chunk += " "
-                                            final_response_content += chunk
-                                            yield chunk
-                                            await asyncio.sleep(0.1)  # Slower for better readability
+                                # Check if response contains HTML
+                                if '<' in final_response and '>' in final_response:
+                                    # Send HTML content in larger chunks to preserve formatting
+                                    yield f"HTML_CONTENT_START:\n"
+                                    await asyncio.sleep(0.01)
+                                    yield final_response
+                                    yield f"\nHTML_CONTENT_END:\n"
+                                else:
+                                    # Simulate streaming by chunking the response for plain text
+                                    words = final_response.split()
+                                    for i in range(0, len(words), 3):  # Send 3 words at a time
+                                        chunk = " ".join(words[i:i + 3])
+                                        if i + 3 < len(words):
+                                            chunk += " "
+                                        final_response_content += chunk
+                                        yield chunk
+                                        await asyncio.sleep(0.1)  # Slower for better readability
 
                         if node_output.get("error_message") and not final_response_started:
                             error_msg = node_output['error_message']
@@ -207,6 +214,7 @@ async def search_interaction_stream(session_id: str, query: str, enabled_tools: 
         traceback.print_exc()
         yield f"ERROR:Failed to initialize search agent: {str(e)}\n"
 
+
 @app.post("/search")
 async def search_endpoint(request: SearchRequest):
     """Main search endpoint with streaming response"""
@@ -222,11 +230,12 @@ async def search_endpoint(request: SearchRequest):
         media_type="text/plain"
     )
 
+
 @app.post("/chat")
 async def chat_endpoint(
-    human_message: str = Query(..., description="Your search query"),
-    enabled_tools: Optional[str] = Query(None, description="Comma-separated list of enabled tools"),
-    session_id: Optional[str] = Query(None, description="Unique session ID")
+        human_message: str = Query(..., description="Your search query"),
+        enabled_tools: Optional[str] = Query(None, description="Comma-separated list of enabled tools"),
+        session_id: Optional[str] = Query(None, description="Unique session ID")
 ):
     """Chat-style endpoint for compatibility"""
     effective_session_id = session_id if session_id else f"search-{str(uuid.uuid4())}"
@@ -241,8 +250,10 @@ async def chat_endpoint(
         media_type="text/plain"
     )
 
+
 if __name__ == "__main__":
     import uvicorn
+
     host = os.getenv("HOST", "127.0.0.1")
     port = int(os.getenv("PORT", "8023"))
 
