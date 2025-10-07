@@ -224,44 +224,130 @@ class MCPToolboxGateway:
         logger.info(f"MCP Toolbox Gateway initialized with protocol version {PROTOCOL_VERSION}")
         logger.info("Compliance components initialized: EventStore, StreamManager, MessageRouter")
 
+    def _sanitize_origin(self, origin: str) -> Optional[str]:
+        """
+        Sanitize origin string to prevent injection attacks.
+        Returns sanitized origin or None if invalid.
+        """
+        if not origin:
+            return None
+
+        try:
+            # Parse and validate URL structure
+            parsed = urlparse(origin)
+
+            # Must have scheme and netloc
+            if not parsed.scheme or not parsed.netloc:
+                logger.warning(f"Invalid origin format (missing scheme/netloc): {origin}")
+                return None
+
+            # Only allow http/https schemes
+            if parsed.scheme not in ['http', 'https']:
+                logger.warning(f"Invalid origin scheme (must be http/https): {origin}")
+                return None
+
+            # Validate hostname format
+            hostname = parsed.hostname
+            if not hostname:
+                return None
+
+            # Length validation
+            if len(hostname) > 253:
+                logger.warning(f"Origin hostname too long: {hostname[:50]}...")
+                return None
+
+            # Reconstruct clean origin (scheme + netloc only, no path/query)
+            clean_origin = f"{parsed.scheme}://{parsed.netloc}"
+            return clean_origin
+
+        except Exception as e:
+            logger.warning(f"Failed to parse origin: {origin}, error: {e}")
+            return None
+
+    def extract_origin_from_request(self, request: Request) -> Optional[str]:
+        """
+        Extract origin from request considering load balancer/reverse proxy headers.
+        Priority order:
+        1. Origin header (most trusted)
+        2. X-Forwarded-Host + X-Forwarded-Proto (load balancer)
+        3. X-Original-Host (alternative)
+        Note: Referer is NOT used as it's easily spoofed
+        """
+        # Standard Origin header (most secure)
+        origin = request.headers.get("origin")
+        if origin:
+            return self._sanitize_origin(origin)
+
+        # Load balancer forwarded headers
+        forwarded_host = request.headers.get("x-forwarded-host")
+        forwarded_proto = request.headers.get("x-forwarded-proto", "https")
+        if forwarded_host:
+            # Validate proto
+            if forwarded_proto not in ['http', 'https']:
+                logger.warning(f"Invalid X-Forwarded-Proto: {forwarded_proto}")
+                forwarded_proto = "https"
+
+            origin = f"{forwarded_proto}://{forwarded_host}"
+            return self._sanitize_origin(origin)
+
+        # Alternative original host header
+        original_host = request.headers.get("x-original-host")
+        if original_host:
+            origin = f"https://{original_host}"
+            return self._sanitize_origin(origin)
+
+        # No origin found
+        return None
+
     def validate_origin_header(self, origin: Optional[str]) -> bool:
         """
         Validate Origin header to prevent DNS rebinding attacks.
         Required by 2025-06-18 specification.
         Uses in-memory cache for fast O(1) validation.
+
+        SECURITY NOTE: This allows permissive origins (ngrok, all HTTPS) by default.
+        Review config_manager.get_origin_validation_config() for production hardening.
         """
         if not origin:
-            return True  # Allow requests without Origin header for local development
+            logger.warning("Origin validation failed: No origin provided")
+            return False
 
         try:
             parsed = urlparse(origin)
             hostname = parsed.hostname
 
+            if not hostname:
+                logger.warning(f"Origin validation failed: No hostname in {origin}")
+                return False
+
             # Get cached configuration (fast in-memory access, no pickle reads)
             allowed_origins, allow_ngrok, allow_https = config_manager.get_origin_validation_config()
 
-            # Fast O(1) set lookup for configured allowed origins
+            # Fast O(1) set lookup for configured allowed origins (most secure)
+            logger.debug(f"Origin validation: hostname={hostname}, allowed={allowed_origins}")
             if hostname in allowed_origins:
+                logger.info(f"✓ Origin allowed (whitelist): {origin}")
                 return True
 
-            # Check if ngrok is allowed
+            # Check if ngrok is allowed (SECURITY: disable in production)
             if allow_ngrok and hostname and (
                 hostname.endswith('.ngrok-free.app') or
                 hostname.endswith('.ngrok.io') or
                 hostname.endswith('.ngrok.app') or
                 '.ngrok.' in hostname
             ):
+                logger.warning(f"⚠ Allowing ngrok origin (SECURITY: disable for production): {origin}")
                 return True
 
-            # Check if HTTPS origins are allowed
+            # Check if HTTPS origins are allowed (SECURITY: only enable behind trusted LB)
             if allow_https and parsed.scheme == 'https':
-                logger.info(f"Allowing HTTPS origin: {origin}")
+                logger.warning(f"⚠ Allowing HTTPS origin (SECURITY: any HTTPS domain accepted): {origin}")
                 return True
 
-            logger.warning(f"Origin not allowed: {origin}")
+            logger.error(f"✗ Origin REJECTED: {origin} (hostname: {hostname})")
             return False
         except Exception as e:
-            logger.warning(f"Invalid Origin header: {origin}, error: {e}")
+            logger.error(f"✗ Origin validation exception: {origin}, error: {e}")
             return False
 
     def validate_accept_header(self, accept: Optional[str], method: str) -> bool:
@@ -446,17 +532,13 @@ async def mcp_get_endpoint(
         validated_version = mcp_gateway.validate_protocol_version(protocol_version)
 
         # Validate Origin header (required by specification)
-        # Handle ngrok forwarded headers
-        origin = request.headers.get("origin") or request.headers.get("x-forwarded-for")
-        ngrok_host = request.headers.get("x-forwarded-host")
-        if ngrok_host:
-            logger.info(f"ngrok request detected - Host: {ngrok_host}, Origin: {origin}")
+        # Extract origin considering load balancer/reverse proxy headers
+        origin = mcp_gateway.extract_origin_from_request(request)
+        logger.info(f"GET endpoint - Extracted origin: {origin}")
 
         if not mcp_gateway.validate_origin_header(origin):
             logger.warning(f"Origin validation failed for: {origin}")
-            # For development with ngrok, be more lenient
-            if not (ngrok_host or 'ngrok' in str(request.url)):
-                raise HTTPException(status_code=403, detail="Origin not allowed")
+            raise HTTPException(status_code=403, detail="Origin not allowed")
 
         # Validate Accept header for GET requests
         if not mcp_gateway.validate_accept_header(accept, "GET"):
@@ -566,17 +648,13 @@ async def mcp_post_endpoint(
         validated_version = mcp_gateway.validate_protocol_version(protocol_version)
 
         # Validate Origin header (required by specification)
-        # Handle ngrok forwarded headers
-        origin = request.headers.get("origin") or request.headers.get("x-forwarded-for")
-        ngrok_host = request.headers.get("x-forwarded-host")
-        if ngrok_host:
-            logger.info(f"ngrok request detected - Host: {ngrok_host}, Origin: {origin}")
+        # Extract origin considering load balancer/reverse proxy headers
+        origin = mcp_gateway.extract_origin_from_request(request)
+        logger.info(f"POST endpoint - Extracted origin: {origin}")
 
         if not mcp_gateway.validate_origin_header(origin):
             logger.warning(f"Origin validation failed for: {origin}")
-            # For development with ngrok, be more lenient
-            if not (ngrok_host or 'ngrok' in str(request.url)):
-                raise HTTPException(status_code=403, detail="Origin not allowed")
+            raise HTTPException(status_code=403, detail="Origin not allowed")
 
         # Validate Accept header for POST requests
         if not mcp_gateway.validate_accept_header(accept, "POST"):

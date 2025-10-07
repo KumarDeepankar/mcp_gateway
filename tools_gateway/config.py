@@ -112,8 +112,50 @@ class ConfigManager:
         """Get origin configuration"""
         return self.config.origin
 
+    def _validate_origin_format(self, origin: str) -> bool:
+        """
+        Validate origin format for security.
+        Prevents injection attacks and malformed origins.
+        """
+        if not origin or not isinstance(origin, str):
+            return False
+
+        # Strip and normalize
+        origin = origin.strip().lower()
+
+        # Length validation (prevent DoS)
+        if len(origin) > 253:  # Max DNS hostname length
+            logger.warning(f"Origin too long (max 253 chars): {origin[:50]}...")
+            return False
+
+        # Character validation - only allow valid hostname characters
+        import re
+        # Allow alphanumeric, dots, hyphens, and underscores (no special chars)
+        if not re.match(r'^[a-z0-9][a-z0-9\-\.\_]*[a-z0-9]$', origin):
+            logger.warning(f"Origin contains invalid characters: {origin}")
+            return False
+
+        # Prevent common injection patterns
+        dangerous_patterns = ['..', '--', '__', '.-', '-.', 'localhost..', 'xn--']
+        if any(pattern in origin for pattern in dangerous_patterns):
+            logger.warning(f"Origin contains suspicious pattern: {origin}")
+            return False
+
+        return True
+
     def add_allowed_origin(self, origin: str) -> bool:
-        """Add an allowed origin"""
+        """
+        Add an allowed origin with security validation.
+        Returns True if added, False if already exists or invalid.
+        """
+        # Security validation
+        if not self._validate_origin_format(origin):
+            logger.error(f"Rejected invalid origin format: {origin}")
+            return False
+
+        # Normalize
+        origin = origin.strip().lower()
+
         if origin not in self.config.origin.allowed_origins:
             self.config.origin.allowed_origins.append(origin)
             self.config.updated_at = datetime.now()

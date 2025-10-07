@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 from typing import Dict, Any, List, Optional
 import httpx
 
@@ -10,9 +11,26 @@ logger = logging.getLogger(__name__)
 class MCPToolClient:
     """Client for communicating with MCP Registry Discovery service"""
 
-    def __init__(self, registry_base_url: str = "http://localhost:8021"):
-        self.registry_base_url = registry_base_url
+    def __init__(self, registry_base_url: str = None, origin: str = None):
+        # Support environment-based configuration for distributed deployments
+        self.registry_base_url = registry_base_url or os.getenv("MCP_GATEWAY_URL", "http://localhost:8021")
+
+        # Dynamic origin determination:
+        # 1. Explicit origin parameter (highest priority)
+        # 2. Environment variable AGENTIC_SEARCH_ORIGIN
+        # 3. Infer from AGENTIC_SEARCH_URL if available
+        # 4. Default to registry_base_url
+        if origin:
+            self.origin = origin
+        elif os.getenv("AGENTIC_SEARCH_ORIGIN"):
+            self.origin = os.getenv("AGENTIC_SEARCH_ORIGIN")
+        elif os.getenv("AGENTIC_SEARCH_URL"):
+            self.origin = os.getenv("AGENTIC_SEARCH_URL")
+        else:
+            self.origin = self.registry_base_url
+
         self.client = httpx.AsyncClient(timeout=60)
+        logger.info(f"MCPToolClient initialized: gateway={self.registry_base_url}, origin={self.origin}")
 
     async def get_available_tools(self) -> List[Dict[str, Any]]:
         """Fetch available tools from MCP registry"""
@@ -34,7 +52,8 @@ class MCPToolClient:
             headers = {
                 "Accept": "application/json, text/event-stream",
                 "Content-Type": "application/json",
-                "MCP-Protocol-Version": "2025-06-18"
+                "MCP-Protocol-Version": "2025-06-18",
+                "Origin": self.origin
             }
 
             # Initialize session
@@ -97,7 +116,8 @@ class MCPToolClient:
             headers = {
                 "Accept": "application/json, text/event-stream",
                 "Content-Type": "application/json",
-                "MCP-Protocol-Version": "2025-06-18"
+                "MCP-Protocol-Version": "2025-06-18",
+                "Origin": self.origin
             }
 
             # Initialize session
@@ -167,5 +187,5 @@ class MCPToolClient:
         await self.client.aclose()
 
 
-# Create a singleton instance
+# Create a singleton instance with dynamic configuration
 mcp_tool_client = MCPToolClient()
