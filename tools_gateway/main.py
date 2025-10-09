@@ -23,6 +23,10 @@ import uvicorn
 from services import discovery_service, connection_manager, ToolNotFoundException
 from mcp_storage import mcp_storage_manager
 from config import config_manager
+from auth import oauth_provider_manager, jwt_manager
+from rbac import rbac_manager, Permission
+from audit import audit_logger, AuditEventType, AuditSeverity
+from middleware import AuthenticationMiddleware, RateLimitMiddleware, get_current_user
 # No hardcoded server imports - fully user-driven
 
 # Configure logging per MCP 2025-06-18 specification
@@ -468,6 +472,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add security middlewares
+# app.add_middleware(RateLimitMiddleware, requests_per_minute=120)
+# Note: AuthenticationMiddleware is optional - enable it to enforce authentication on all endpoints
+# app.add_middleware(AuthenticationMiddleware)
+
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -480,7 +489,7 @@ async def root(request: Request):
     logger.info(f"Root request from: {request.client.host if request.client else 'unknown'}")
     logger.info(f"Headers: {dict(request.headers)}")
 
-    response = FileResponse("test_mcp.html")
+    response = FileResponse("static/index.html")
 
     # Add headers for ngrok compatibility
     response.headers["X-Frame-Options"] = "ALLOWALL"
@@ -509,6 +518,635 @@ async def debug_headers(request: Request):
         "origin": request.headers.get("origin"),
     }
     return JSONResponse(content=debug_info)
+
+
+# =====================================================================
+# AUTHENTICATION & AUTHORIZATION ENDPOINTS
+# =====================================================================
+
+@app.get("/auth/welcome")
+async def auth_welcome():
+    """Welcome page with OAuth login options"""
+    return FileResponse("static/index.html")
+
+
+@app.get("/auth/providers")
+async def list_oauth_providers():
+    """List available OAuth providers"""
+    providers = oauth_provider_manager.list_providers()
+    return JSONResponse(content={"providers": providers})
+
+
+@app.post("/auth/login")
+async def oauth_login(request: Request, provider_id: str):
+    """Initiate OAuth login flow"""
+    # Build redirect URI
+    base_url = str(request.base_url).rstrip('/')
+    redirect_uri = f"{base_url}/auth/callback"
+
+    auth_data = oauth_provider_manager.create_authorization_url(provider_id, redirect_uri)
+
+    if not auth_data:
+        raise HTTPException(status_code=404, detail="OAuth provider not found")
+
+    audit_logger.log_event(
+        AuditEventType.AUTH_LOGIN_SUCCESS,
+        ip_address=request.client.host if request.client else None,
+        details={"provider": provider_id, "step": "initiated"}
+    )
+
+    return JSONResponse(content=auth_data)
+
+
+@app.get("/auth/callback")
+async def oauth_callback(request: Request, code: str, state: str):
+    """Handle OAuth callback"""
+    try:
+        # Exchange code for token
+        result = await oauth_provider_manager.exchange_code_for_token(code, state)
+        if not result:
+            raise HTTPException(status_code=400, detail="Failed to exchange authorization code")
+
+        oauth_token, provider_id = result
+
+        # Get user info from provider
+        user_info = await oauth_provider_manager.get_user_info(provider_id, oauth_token.access_token)
+        if not user_info:
+            raise HTTPException(status_code=400, detail="Failed to retrieve user information")
+
+        # Get or create user in RBAC system
+        user = rbac_manager.get_or_create_user(
+            email=user_info.email,
+            name=user_info.name,
+            provider=provider_id
+        )
+
+        # Create JWT access token for MCP gateway
+        access_token = jwt_manager.create_access_token(user_info)
+
+        audit_logger.log_event(
+            AuditEventType.AUTH_LOGIN_SUCCESS,
+            user_id=user.user_id,
+            user_email=user.email,
+            ip_address=request.client.host if request.client else None,
+            details={"provider": provider_id}
+        )
+
+        # Redirect to portal with token
+        redirect_url = f"/?token={access_token}"
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=redirect_url)
+
+    except Exception as e:
+        logger.error(f"OAuth callback error: {e}")
+        audit_logger.log_event(
+            AuditEventType.AUTH_LOGIN_FAILURE,
+            severity=AuditSeverity.ERROR,
+            ip_address=request.client.host if request.client else None,
+            details={"error": str(e)},
+            success=False
+        )
+        raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
+
+
+@app.get("/auth/user")
+async def get_current_user_info(request: Request):
+    """Get current authenticated user info"""
+    user = get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    permissions = rbac_manager.get_user_permissions(user.user_id)
+
+    return JSONResponse(content={
+        "user_id": user.user_id,
+        "email": user.email,
+        "name": user.name,
+        "provider": user.provider,
+        "roles": [rbac_manager.get_role(rid).role_name for rid in user.roles if rbac_manager.get_role(rid)],
+        "permissions": [p.value for p in permissions],
+        "enabled": user.enabled
+    })
+
+
+@app.post("/auth/logout")
+async def logout(request: Request):
+    """Logout user"""
+    user = get_current_user(request)
+    if user:
+        audit_logger.log_event(
+            AuditEventType.AUTH_LOGOUT,
+            user_id=user.user_id,
+            user_email=user.email,
+            ip_address=request.client.host if request.client else None
+        )
+
+    return JSONResponse(content={"message": "Logged out successfully"})
+
+
+# =====================================================================
+# OAUTH PROVIDER MANAGEMENT ENDPOINTS
+# =====================================================================
+
+@app.post("/admin/oauth/providers")
+async def add_oauth_provider(request: Request, request_data: Dict[str, Any]):
+    """
+    Add OAuth provider
+    - Allows first-time setup without authentication (when no providers exist)
+    - Requires admin permission after initial provider is configured
+    """
+    # Check if this is first-time setup (no providers exist)
+    existing_providers = oauth_provider_manager.list_providers()
+    is_first_provider = len(existing_providers) == 0
+
+    if not is_first_provider:
+        # Not first-time setup - require authentication and permission
+        user = get_current_user(request)
+        if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    else:
+        # First-time setup - no authentication required
+        user = None
+        logger.info("First-time OAuth provider setup - allowing unauthenticated access")
+
+    try:
+        provider = oauth_provider_manager.add_provider(**request_data)
+
+        # Log audit event (with or without user)
+        audit_logger.log_event(
+            AuditEventType.OAUTH_PROVIDER_ADDED,
+            user_id=user.user_id if user else None,
+            user_email=user.email if user else "system",
+            resource_type="oauth_provider",
+            resource_id=provider.provider_id,
+            details={"provider_name": provider.provider_name, "first_time_setup": is_first_provider}
+        )
+
+        return JSONResponse(content={
+            "success": True,
+            "provider_id": provider.provider_id,
+            "message": "OAuth provider added successfully. You can now sign in with this provider." if is_first_provider else "OAuth provider added successfully."
+        })
+    except Exception as e:
+        logger.error(f"Error adding OAuth provider: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/admin/oauth/providers/{provider_id}")
+async def remove_oauth_provider(request: Request, provider_id: str):
+    """Remove OAuth provider (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    success = oauth_provider_manager.remove_provider(provider_id)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.OAUTH_PROVIDER_REMOVED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="oauth_provider",
+            resource_id=provider_id
+        )
+
+    return JSONResponse(content={"success": success})
+
+
+# =====================================================================
+# USER & ROLE MANAGEMENT ENDPOINTS (RBAC)
+# =====================================================================
+
+@app.get("/admin/users")
+async def list_users(request: Request):
+    """List all users (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    users = rbac_manager.list_users()
+    return JSONResponse(content={"users": users})
+
+
+@app.post("/admin/users/{user_id}/roles")
+async def assign_user_role(request: Request, user_id: str, request_data: Dict[str, Any]):
+    """Assign role to user (Admin only)"""
+    current_user = get_current_user(request)
+    if not current_user or not rbac_manager.has_permission(current_user.user_id, Permission.USER_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    role_id = request_data.get("role_id")
+    success = rbac_manager.assign_role(user_id, role_id)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.AUTHZ_ROLE_ASSIGNED,
+            user_id=current_user.user_id,
+            user_email=current_user.email,
+            resource_type="user",
+            resource_id=user_id,
+            details={"role_id": role_id}
+        )
+
+    return JSONResponse(content={"success": success})
+
+
+@app.delete("/admin/users/{user_id}/roles/{role_id}")
+async def revoke_user_role(request: Request, user_id: str, role_id: str):
+    """Revoke role from user (Admin only)"""
+    current_user = get_current_user(request)
+    if not current_user or not rbac_manager.has_permission(current_user.user_id, Permission.USER_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    success = rbac_manager.revoke_role(user_id, role_id)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.AUTHZ_ROLE_REVOKED,
+            user_id=current_user.user_id,
+            user_email=current_user.email,
+            resource_type="user",
+            resource_id=user_id,
+            details={"role_id": role_id}
+        )
+
+    return JSONResponse(content={"success": success})
+
+
+@app.get("/admin/roles")
+async def list_roles(request: Request):
+    """List all roles"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    roles = rbac_manager.list_roles()
+    return JSONResponse(content={"roles": roles})
+
+
+@app.post("/admin/roles")
+async def create_role(request: Request, request_data: Dict[str, Any]):
+    """Create new role (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    role_name = request_data.get("role_name")
+    description = request_data.get("description", "")
+    permissions_str = request_data.get("permissions", [])
+
+    # Convert string permissions to Permission enum
+    permissions = {Permission(p) for p in permissions_str if p in [perm.value for perm in Permission]}
+
+    role = rbac_manager.create_role(role_name, description, permissions)
+
+    audit_logger.log_event(
+        AuditEventType.ROLE_CREATED,
+        user_id=user.user_id,
+        user_email=user.email,
+        resource_type="role",
+        resource_id=role.role_id,
+        details={"role_name": role_name}
+    )
+
+    return JSONResponse(content={
+        "success": True,
+        "role_id": role.role_id
+    })
+
+
+@app.delete("/admin/roles/{role_id}")
+async def delete_role(request: Request, role_id: str):
+    """Delete role (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Check if role exists and is not a system role
+    role = rbac_manager.get_role(role_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    if role.is_system:
+        raise HTTPException(status_code=400, detail="Cannot delete system roles")
+
+    success = rbac_manager.delete_role(role_id)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.ROLE_DELETED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="role",
+            resource_id=role_id,
+            details={"role_name": role.role_name}
+        )
+
+    return JSONResponse(content={"success": success})
+
+
+@app.post("/admin/users")
+async def create_user(request: Request, request_data: Dict[str, Any]):
+    """Create local user manually (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    email = request_data.get("email")
+    name = request_data.get("name", "")
+    password = request_data.get("password")
+    roles = request_data.get("roles", [])
+    provider = request_data.get("provider", "local")
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email and password are required")
+
+    # Create user
+    new_user = rbac_manager.get_or_create_user(
+        email=email,
+        name=name,
+        provider=provider
+    )
+
+    # Assign roles
+    for role_id in roles:
+        rbac_manager.assign_role(new_user.user_id, role_id)
+
+    audit_logger.log_event(
+        AuditEventType.USER_CREATED,
+        user_id=user.user_id,
+        user_email=user.email,
+        resource_type="user",
+        resource_id=new_user.user_id,
+        details={"email": email, "roles": roles}
+    )
+
+    return JSONResponse(content={
+        "success": True,
+        "user_id": new_user.user_id
+    })
+
+
+# =====================================================================
+# ACTIVE DIRECTORY INTEGRATION ENDPOINTS
+# =====================================================================
+
+from ad_integration import ad_integration
+
+
+@app.post("/admin/ad/query-groups")
+async def query_ad_groups(request: Request, request_data: Dict[str, Any]):
+    """Query Active Directory for groups (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    server = request_data.get("server")
+    port = request_data.get("port", 389)
+    bind_dn = request_data.get("bind_dn")
+    bind_password = request_data.get("bind_password")
+    base_dn = request_data.get("base_dn")
+    group_filter = request_data.get("group_filter", "(objectClass=group)")
+    use_ssl = request_data.get("use_ssl", False)
+
+    if not all([server, bind_dn, bind_password, base_dn]):
+        raise HTTPException(status_code=400, detail="Missing required AD connection parameters")
+
+    try:
+        groups = ad_integration.query_groups(
+            server=server,
+            port=port,
+            bind_dn=bind_dn,
+            bind_password=bind_password,
+            base_dn=base_dn,
+            group_filter=group_filter,
+            use_ssl=use_ssl
+        )
+
+        audit_logger.log_event(
+            AuditEventType.AD_GROUP_QUERY,
+            user_id=user.user_id,
+            user_email=user.email,
+            details={"server": server, "base_dn": base_dn, "groups_found": len(groups)}
+        )
+
+        return JSONResponse(content={
+            "groups": [
+                {
+                    "name": g.name,
+                    "dn": g.dn,
+                    "member_count": g.member_count
+                }
+                for g in groups
+            ]
+        })
+
+    except Exception as e:
+        logger.error(f"AD group query error: {e}")
+        audit_logger.log_event(
+            AuditEventType.AD_SYNC_FAILURE,
+            severity=AuditSeverity.ERROR,
+            user_id=user.user_id,
+            user_email=user.email,
+            details={"error": str(e), "server": server},
+            success=False
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to query AD: {str(e)}")
+
+
+@app.post("/admin/ad/group-mappings")
+async def create_group_mapping(request: Request, request_data: Dict[str, Any]):
+    """Create AD group to RBAC role mapping and sync users (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    group_dn = request_data.get("group_dn")
+    role_id = request_data.get("role_id")
+    auto_sync = request_data.get("auto_sync", False)
+
+    # AD connection details (should be stored securely in production)
+    ad_config = request_data.get("ad_config", {})
+    server = ad_config.get("server")
+    port = ad_config.get("port", 389)
+    bind_dn = ad_config.get("bind_dn")
+    bind_password = ad_config.get("bind_password")
+    use_ssl = ad_config.get("use_ssl", False)
+
+    if not group_dn or not role_id:
+        raise HTTPException(status_code=400, detail="group_dn and role_id are required")
+
+    # Verify role exists
+    role = rbac_manager.get_role(role_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    try:
+        # Create the mapping
+        mapping = ad_integration.add_group_mapping(
+            group_dn=group_dn,
+            role_id=role_id,
+            auto_sync=auto_sync
+        )
+
+        # Sync users from the group immediately
+        synced_users = 0
+        if server and bind_dn and bind_password:
+            try:
+                users = ad_integration.get_group_members(
+                    server=server,
+                    port=port,
+                    bind_dn=bind_dn,
+                    bind_password=bind_password,
+                    group_dn=group_dn,
+                    use_ssl=use_ssl
+                )
+
+                # Create users and assign role
+                for ad_user in users:
+                    # Get or create user in RBAC system
+                    rbac_user = rbac_manager.get_or_create_user(
+                        email=ad_user.email,
+                        name=ad_user.display_name,
+                        provider="active_directory"
+                    )
+
+                    # Assign the mapped role
+                    rbac_manager.assign_role(rbac_user.user_id, role_id)
+                    synced_users += 1
+
+                # Update mapping sync status
+                ad_integration.update_mapping_sync_status(mapping.mapping_id, synced_users)
+
+            except Exception as e:
+                logger.error(f"Error syncing users from AD group: {e}")
+                # Mapping was created but sync failed
+                audit_logger.log_event(
+                    AuditEventType.AD_SYNC_FAILURE,
+                    severity=AuditSeverity.WARNING,
+                    user_id=user.user_id,
+                    user_email=user.email,
+                    details={"error": str(e), "group_dn": group_dn},
+                    success=False
+                )
+
+        audit_logger.log_event(
+            AuditEventType.AD_GROUP_MAPPED,
+            user_id=user.user_id,
+            user_email=user.email,
+            details={
+                "group_dn": group_dn,
+                "role_id": role_id,
+                "synced_users": synced_users,
+                "auto_sync": auto_sync
+            }
+        )
+
+        return JSONResponse(content={
+            "success": True,
+            "mapping_id": mapping.mapping_id,
+            "synced_users": synced_users,
+            "message": f"Group mapped successfully. Synced {synced_users} users."
+        })
+
+    except Exception as e:
+        logger.error(f"Error creating group mapping: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create mapping: {str(e)}")
+
+
+@app.get("/admin/ad/group-mappings")
+async def list_group_mappings(request: Request):
+    """List all AD group to role mappings (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    mappings = ad_integration.list_mappings()
+
+    return JSONResponse(content={
+        "mappings": [
+            {
+                "mapping_id": m.mapping_id,
+                "group_dn": m.group_dn,
+                "role_id": m.role_id,
+                "auto_sync": m.auto_sync,
+                "last_sync": m.last_sync.isoformat() if m.last_sync else None,
+                "synced_users": m.synced_users
+            }
+            for m in mappings
+        ]
+    })
+
+
+@app.delete("/admin/ad/group-mappings/{mapping_id}")
+async def delete_group_mapping(request: Request, mapping_id: str):
+    """Delete AD group to role mapping (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    success = ad_integration.remove_group_mapping(mapping_id)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.AD_GROUP_UNMAPPED,
+            user_id=user.user_id,
+            user_email=user.email,
+            details={"mapping_id": mapping_id}
+        )
+
+    return JSONResponse(content={"success": success})
+
+
+# =====================================================================
+# AUDIT LOG ENDPOINTS
+# =====================================================================
+
+@app.get("/admin/audit/events")
+async def get_audit_events(request: Request, limit: int = 100):
+    """Get recent audit events (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.AUDIT_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    events = audit_logger.query_events(limit=limit)
+
+    return JSONResponse(content={
+        "events": [
+            {
+                "event_id": e.event_id,
+                "timestamp": e.timestamp.isoformat(),
+                "event_type": e.event_type.value,
+                "severity": e.severity.value,
+                "user_email": e.user_email,
+                "action": e.action,
+                "success": e.success
+            }
+            for e in events
+        ]
+    })
+
+
+@app.get("/admin/audit/statistics")
+async def get_audit_statistics(request: Request, hours: int = 24):
+    """Get audit statistics (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.AUDIT_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    stats = audit_logger.get_statistics(hours=hours)
+    return JSONResponse(content=stats)
+
+
+@app.get("/admin/audit/security")
+async def get_security_events(request: Request, hours: int = 24):
+    """Get security events (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.AUDIT_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    events = audit_logger.get_security_events(hours=hours)
+    return JSONResponse(content={"events": events})
 
 
 

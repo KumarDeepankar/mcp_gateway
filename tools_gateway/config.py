@@ -3,12 +3,12 @@
 Configuration management for Tools Gateway
 Provides dynamic configuration for connection health checks and allowed origins
 """
-import pickle
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
+from database import database
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +40,9 @@ class GatewayConfig(BaseModel):
 
 
 class ConfigManager:
-    """Manages gateway configuration with persistence using pickle storage and in-memory caching"""
+    """Manages gateway configuration with persistence using SQLite database and in-memory caching"""
 
-    def __init__(self, config_file: str = "gateway_config.pkl"):
-        self.config_file = Path(config_file)
+    def __init__(self):
         self.config: GatewayConfig = GatewayConfig()
 
         # In-memory cache for fast origin validation
@@ -54,15 +53,15 @@ class ConfigManager:
         self._refresh_cache()
 
     def _load_config(self):
-        """Load configuration from pickle file"""
+        """Load configuration from SQLite database"""
         try:
-            if self.config_file.exists():
-                with open(self.config_file, 'rb') as f:
-                    data = pickle.load(f)
-                    self.config = GatewayConfig(**data)
-                    logger.info(f"Loaded configuration from {self.config_file}")
+            # Load gateway config from database
+            config_data = database.get_config("gateway_config")
+            if config_data:
+                self.config = GatewayConfig(**config_data)
+                logger.info("Loaded configuration from database")
             else:
-                logger.info("No config file found, using defaults")
+                logger.info("No config found in database, using defaults")
                 self._save_config()
         except Exception as e:
             logger.error(f"Error loading config: {e}, using defaults")
@@ -78,19 +77,13 @@ class ConfigManager:
         logger.debug(f"Origin cache refreshed with {len(self._origin_cache)} origins")
 
     def _save_config(self):
-        """Save configuration to pickle file with backup"""
+        """Save configuration to SQLite database"""
         try:
-            # Create backup of existing file
-            if self.config_file.exists():
-                backup_path = self.config_file.with_suffix('.pkl.backup')
-                with open(self.config_file, 'rb') as src:
-                    with open(backup_path, 'wb') as dst:
-                        dst.write(src.read())
-
-            # Write new data
-            with open(self.config_file, 'wb') as f:
-                pickle.dump(self.config.model_dump(), f)
-            logger.info(f"Saved configuration to {self.config_file}")
+            # Save gateway config to database
+            # Use mode='json' to serialize datetime objects to ISO format
+            config_data = self.config.model_dump(mode='json')
+            database.save_config("gateway_config", config_data)
+            logger.info("Saved configuration to database")
         except Exception as e:
             logger.error(f"Error saving config: {e}")
 

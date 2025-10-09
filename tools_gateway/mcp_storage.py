@@ -1,15 +1,14 @@
 # mcp_toolbox/mcp_storage.py
-import pickle
 import os
 import asyncio
 import ssl
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timezone
-import aiofiles
 import logging
 from pathlib import Path
 import aiohttp
 import json
+from database import database
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +58,9 @@ class MCPServerInfo:
         return server
 
 class MCPStorageManager:
-    """Persistent storage manager for MCP server configurations using pickle."""
-    
-    def __init__(self, storage_path: str = "mcp_configs.pkl"):
-        self.storage_path = Path(storage_path)
+    """Persistent storage manager for MCP server configurations using SQLite database."""
+
+    def __init__(self):
         self.servers: Dict[str, Dict[str, Any]] = {}
         self._lock = asyncio.Lock()
         
@@ -71,35 +69,34 @@ class MCPStorageManager:
         await self._load_from_disk()
         
     async def _load_from_disk(self):
-        """Load MCP server configurations from pickle file."""
+        """Load MCP server configurations from SQLite database."""
         try:
-            if self.storage_path.exists():
-                async with aiofiles.open(self.storage_path, 'rb') as f:
-                    data = await f.read()
-                    self.servers = pickle.loads(data)
-                    logger.info(f"Loaded {len(self.servers)} MCP server configurations from {self.storage_path}")
-            else:
-                logger.info("No existing MCP configuration file found, starting with empty storage")
-                self.servers = {}
+            # Load all servers from database
+            servers_list = database.get_all_mcp_servers()
+            self.servers = {}
+            for server_data in servers_list:
+                server_id = server_data["server_id"]
+                self.servers[server_id] = server_data
+            logger.info(f"Loaded {len(self.servers)} MCP server configurations from database")
         except Exception as e:
             logger.error(f"Failed to load MCP server configurations: {e}")
             self.servers = {}
     
     async def _save_to_disk(self):
-        """Save MCP server configurations to pickle file."""
+        """Save MCP server configurations to SQLite database."""
         try:
-            # Create backup of existing file
-            if self.storage_path.exists():
-                backup_path = self.storage_path.with_suffix('.pkl.backup')
-                async with aiofiles.open(self.storage_path, 'rb') as src:
-                    async with aiofiles.open(backup_path, 'wb') as dst:
-                        await dst.write(await src.read())
-            
-            # Write new data
-            data = pickle.dumps(self.servers)
-            async with aiofiles.open(self.storage_path, 'wb') as f:
-                await f.write(data)
-            logger.info(f"Saved {len(self.servers)} MCP server configurations to {self.storage_path}")
+            # Save all servers to database
+            for server_id, server_data in self.servers.items():
+                database.save_mcp_server(
+                    server_id=server_data["server_id"],
+                    name=server_data["name"],
+                    url=server_data["url"],
+                    description=server_data.get("description", ""),
+                    capabilities=server_data.get("capabilities", {}),
+                    metadata=server_data.get("metadata", {}),
+                    registered_via=server_data.get("registered_via", "ui")
+                )
+            logger.info(f"Saved {len(self.servers)} MCP server configurations to database")
         except Exception as e:
             logger.error(f"Failed to save MCP server configurations: {e}")
             raise
