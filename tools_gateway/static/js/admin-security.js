@@ -1157,7 +1157,7 @@ let adConfigData = {
     base_dn: '',
     bind_dn: '',
     bind_password: '',
-    group_filter: '(objectClass=group)',
+    group_filter: '(objectClass=organizationalUnit)',
     use_ssl: false
 };
 
@@ -1191,7 +1191,7 @@ async function testADConnection() {
                 bind_dn: bindDN,
                 bind_password: bindPassword,
                 base_dn: baseDN,
-                group_filter: '(objectClass=*)',  // Simple test query
+                group_filter: '(objectClass=organizationalUnit)',  // Standard LDAP filter for organizational units
                 use_ssl: useSSL
             })
         });
@@ -1242,7 +1242,7 @@ async function saveADConfig() {
         return;
     }
 
-    // Store configuration in memory
+    // Store configuration in memory (including password for session)
     adConfigData = {
         server: server,
         port: port,
@@ -1253,37 +1253,80 @@ async function saveADConfig() {
         use_ssl: useSSL
     };
 
-    // Save to localStorage for persistence (password excluded for security)
-    const configToStore = {
-        server: server,
-        port: port,
-        base_dn: baseDN,
-        bind_dn: bindDN,
-        group_filter: groupFilter,
-        use_ssl: useSSL
-    };
-    localStorage.setItem('ad_config', JSON.stringify(configToStore));
+    try {
+        // Save to database (password excluded for security)
+        const headers = {
+            'Content-Type': 'application/json'
+        };
 
-    showNotification('AD configuration saved successfully', 'success');
+        // Only add auth token if we have one
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+        }
 
-    // Load existing mappings
-    loadADMappings();
+        const response = await fetch('/admin/ad/config', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({
+                server: server,
+                port: port,
+                base_dn: baseDN,
+                bind_dn: bindDN,
+                group_filter: groupFilter,
+                use_ssl: useSSL
+            })
+        });
+
+        if (response.ok) {
+            showNotification('AD configuration saved to database successfully', 'success');
+            // Load existing mappings
+            loadADMappings();
+        } else {
+            const error = await response.json();
+            showNotification('Failed to save AD configuration: ' + (error.detail || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        console.error('Error saving AD configuration:', error);
+        showNotification('Error saving AD configuration: ' + error.message, 'error');
+    }
 }
 
-// Load AD Configuration from localStorage
-function loadADConfig() {
-    const stored = localStorage.getItem('ad_config');
-    if (stored) {
-        const config = JSON.parse(stored);
-        document.getElementById('adConfigServer').value = config.server || '';
-        document.getElementById('adConfigPort').value = config.port || 389;
-        document.getElementById('adConfigBaseDN').value = config.base_dn || '';
-        document.getElementById('adConfigBindDN').value = config.bind_dn || '';
-        document.getElementById('adConfigGroupFilter').value = config.group_filter || '(objectClass=group)';
-        document.getElementById('adConfigUseSSL').checked = config.use_ssl || false;
+// Load AD Configuration from database
+async function loadADConfig() {
+    try {
+        const headers = {};
 
-        // Update adConfigData (password needs to be re-entered)
-        adConfigData = { ...config, bind_password: '' };
+        // Only add auth token if we have one
+        if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+        }
+
+        const response = await fetch('/admin/ad/config', {
+            headers: headers
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const config = data.config;
+
+            if (config && Object.keys(config).length > 0) {
+                document.getElementById('adConfigServer').value = config.server || '';
+                document.getElementById('adConfigPort').value = config.port || 389;
+                document.getElementById('adConfigBaseDN').value = config.base_dn || '';
+                document.getElementById('adConfigBindDN').value = config.bind_dn || '';
+                document.getElementById('adConfigGroupFilter').value = config.group_filter || '(objectClass=organizationalUnit)';
+                document.getElementById('adConfigUseSSL').checked = config.use_ssl || false;
+
+                // Update adConfigData (password needs to be re-entered)
+                adConfigData = { ...config, bind_password: '' };
+
+                console.log('AD configuration loaded from database');
+            }
+        } else if (response.status !== 403 && response.status !== 401) {
+            console.error('Failed to load AD configuration');
+        }
+    } catch (error) {
+        console.error('Error loading AD configuration:', error);
     }
 }
 
@@ -1493,6 +1536,11 @@ async function queryADGroups() {
         if (response.ok) {
             const data = await response.json();
             displayADGroups(data.groups);
+
+            // Store fetched groups locally
+            if (typeof storeFetchedADData === 'function') {
+                storeFetchedADData(data.groups, []);
+            }
         } else {
             const error = await response.json();
             resultDiv.innerHTML = `

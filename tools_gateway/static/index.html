@@ -336,6 +336,29 @@
                         </div>
                     </div>
 
+                    <!-- Fetched AD Groups & Users Panel -->
+                    <div class="test-panel" style="margin-top: 20px;">
+                        <div class="test-panel-header">
+                            <div class="panel-title">
+                                <i class="fas fa-users-cog"></i>
+                                Fetched AD Groups & Users
+                            </div>
+                            <button class="btn btn-sm btn-outline" onclick="refreshFetchedADData()">
+                                <i class="fas fa-sync"></i> Refresh
+                            </button>
+                        </div>
+                        <div class="test-panel-body">
+                            <div class="alert alert-info" style="margin-bottom: 20px;">
+                                <i class="fas fa-info-circle"></i>
+                                <strong>Local Storage</strong>
+                                <p>Groups and users fetched from AD are stored locally for authorization management. Click on any group to view its members.</p>
+                            </div>
+                            <div id="fetchedADContainer">
+                                <p class="text-muted">No AD data fetched yet. Use "Query Groups" in AD Configuration to fetch groups and users.</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- User Management Panel -->
                     <div class="test-panel" style="margin-top: 20px;">
                         <div class="test-panel-header">
@@ -999,5 +1022,6 @@
 
     <script src="static/js/mcp-portal.js"></script>
     <script src="static/js/admin-security.js"></script>
+    <script src="static/js/admin-ad-fetched.js"></script>
 </body>
 </html>
