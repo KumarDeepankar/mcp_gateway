@@ -51,7 +51,7 @@ function checkAuthStatus() {
             } else {
                 // Token invalid or expired
                 clearAuth();
-                showLoginModal();
+                redirectToLogin();
                 throw new Error('Authentication failed');
             }
         })
@@ -62,12 +62,23 @@ function checkAuthStatus() {
         .catch(error => {
             console.error('Auth check failed:', error);
             clearAuth();
-            showLoginModal();
+            redirectToLogin();
         });
     } else {
         // Not authenticated
-        showLoginModal();
+        redirectToLogin();
     }
+}
+
+/**
+ * Redirect to login page
+ */
+function redirectToLogin() {
+    // Don't redirect if we're already on the login page
+    if (window.location.pathname === '/login.html' || window.location.pathname === '/static/login.html') {
+        return;
+    }
+    window.location.href = '/static/login.html';
 }
 
 /**
@@ -303,8 +314,7 @@ function toggleUserProfile() {
  */
 function handleLogout() {
     clearAuth();
-    showLoginModal();
-    showNotification('Logged Out', 'You have been logged out successfully.', 'info');
+    redirectToLogin();
 }
 
 /**

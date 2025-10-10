@@ -612,7 +612,7 @@ function displayUsers(users) {
                         </td>
                         <td>${u.last_login ? new Date(u.last_login).toLocaleString() : 'Never'}</td>
                         <td>
-                            <button class="btn btn-sm" onclick="manageUserRoles('${u.user_id}', '${u.email}')">
+                            <button class="btn btn-sm btn-primary" onclick="showManageUserRolesModal('${u.user_id}', '${u.email.replace(/'/g, "\\'")}', ${JSON.stringify(u.roles).replace(/"/g, '&quot;')})">
                                 <i class="fas fa-user-cog"></i> Manage Roles
                             </button>
                         </td>
@@ -623,40 +623,177 @@ function displayUsers(users) {
     `;
 }
 
-async function manageUserRoles(userId, userEmail) {
-    // Load available roles
-    const rolesResponse = await fetch('/admin/roles', {
-        headers: { 'Authorization': `Bearer ${authToken}` }
-    });
-    const rolesData = await rolesResponse.json();
-
-    // Show modal with role assignment
-    showModal('userRolesModal', {
-        userId: userId,
-        userEmail: userEmail,
-        availableRoles: rolesData.roles
-    });
-}
-
-async function assignRole(userId, roleId) {
+// Show Manage User Roles Modal with checkboxes (similar to Tool Discovery)
+async function showManageUserRolesModal(userId, userEmail, currentRoles) {
     try {
-        const response = await fetch(`/admin/users/${userId}/roles`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${authToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ role_id: roleId })
+        // Load available roles
+        const rolesResponse = await fetch('/admin/roles', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
         });
 
-        if (response.ok) {
-            showNotification('Role assigned successfully', 'success');
-            loadUsers();
-        } else {
-            showNotification('Failed to assign role', 'error');
+        if (!rolesResponse.ok) {
+            showNotification('Failed to load roles', 'error');
+            return;
         }
+
+        const rolesData = await rolesResponse.json();
+        const availableRoles = rolesData.roles;
+
+        // Create a map of role names to role IDs for current roles
+        const currentRoleNames = Array.isArray(currentRoles) ? currentRoles : [];
+        const currentRoleIds = availableRoles
+            .filter(role => currentRoleNames.includes(role.role_name))
+            .map(role => role.role_id);
+
+        // Create modal HTML dynamically
+        let modalHTML = `
+            <div id="manageUserRolesModal" class="modal" style="display: block;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <div class="modal-title">
+                            <i class="fas fa-user-cog"></i>
+                            Manage Roles for ${userEmail}
+                        </div>
+                        <button class="modal-close" onclick="closeManageUserRolesModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label class="form-label">Assign Roles</label>
+                            <div id="userRolesCheckboxes" class="checkbox-group">
+                                ${availableRoles.map(role => `
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" name="user-roles" value="${role.role_id}"
+                                            data-role-name="${role.role_name}"
+                                            ${currentRoleIds.includes(role.role_id) ? 'checked' : ''}>
+                                        <span>${role.role_name}</span>
+                                        <small>${role.description || 'No description'}</small>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline" onclick="closeManageUserRolesModal()">Cancel</button>
+                        <button class="btn btn-primary" id="saveUserRolesBtn" data-user-id="${userId}" data-original-roles='${JSON.stringify(currentRoleIds)}'>
+                            <i class="fas fa-save"></i> Save Roles
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if present
+        const existingModal = document.getElementById('manageUserRolesModal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        // Insert modal into DOM
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+        // Add event listener to the save button
+        const saveBtn = document.getElementById('saveUserRolesBtn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', function() {
+                const userId = this.getAttribute('data-user-id');
+                const originalRoles = JSON.parse(this.getAttribute('data-original-roles'));
+                saveUserRoles(userId, originalRoles);
+            });
+        }
+
     } catch (error) {
-        console.error('Error assigning role:', error);
+        console.error('Error showing manage user roles modal:', error);
+        showNotification('Error loading role management', 'error');
+    }
+}
+
+// Close Manage User Roles Modal
+function closeManageUserRolesModal() {
+    const modal = document.getElementById('manageUserRolesModal');
+    if (modal) {
+        modal.remove();
+    }
+}
+
+// Save User Roles
+async function saveUserRoles(userId, originalRoleIds) {
+    try {
+        // Get all checked role checkboxes
+        const selectedRoleIds = Array.from(document.querySelectorAll('#userRolesCheckboxes input[name="user-roles"]:checked'))
+            .map(cb => cb.value);
+
+        if (selectedRoleIds.length === 0) {
+            showNotification('Please select at least one role', 'error');
+            return;
+        }
+
+        // Determine which roles to add and which to remove
+        const rolesToAdd = selectedRoleIds.filter(roleId => !originalRoleIds.includes(roleId));
+        const rolesToRemove = originalRoleIds.filter(roleId => !selectedRoleIds.includes(roleId));
+
+        console.log('Original roles:', originalRoleIds);
+        console.log('Selected roles:', selectedRoleIds);
+        console.log('Roles to add:', rolesToAdd);
+        console.log('Roles to remove:', rolesToRemove);
+
+        let hasErrors = false;
+
+        // Add new roles
+        for (const roleId of rolesToAdd) {
+            try {
+                const response = await fetch(`/admin/users/${userId}/roles`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ role_id: roleId })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error(`Failed to add role ${roleId}:`, error);
+                    hasErrors = true;
+                }
+            } catch (error) {
+                console.error(`Error adding role ${roleId}:`, error);
+                hasErrors = true;
+            }
+        }
+
+        // Remove unselected roles
+        for (const roleId of rolesToRemove) {
+            try {
+                const response = await fetch(`/admin/users/${userId}/roles/${roleId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error(`Failed to remove role ${roleId}:`, error);
+                    hasErrors = true;
+                }
+            } catch (error) {
+                console.error(`Error removing role ${roleId}:`, error);
+                hasErrors = true;
+            }
+        }
+
+        if (hasErrors) {
+            showNotification('Some roles could not be updated. Check console for details.', 'warning');
+        } else {
+            showNotification('Roles updated successfully', 'success');
+        }
+
+        closeManageUserRolesModal();
+        loadUsers(); // Refresh the user list
+
+    } catch (error) {
+        console.error('Error saving user roles:', error);
+        showNotification('Error updating roles: ' + error.message, 'error');
     }
 }
 

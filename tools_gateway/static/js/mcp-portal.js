@@ -1,5 +1,5 @@
-// MCP Portal JavaScript - VERSION 6 WITH RESPONSIVE DESIGN
-console.log('🚀 MCP Portal JS v6 loaded - Fully responsive UI with custom role dropdown!');
+// MCP Portal JavaScript - VERSION 9 WITH SQUARE EXPANDABLE CAPABILITY CARDS
+console.log('🚀 MCP Portal JS v9 loaded - Square expandable capability cards!');
 // Dynamic URL configuration for both local development and Kubernetes deployment
 const MANAGE_URL = (() => {
     const pathname = window.location.pathname;
@@ -75,6 +75,8 @@ let discoveredTools = [];
 let currentCapabilities = {};
 let currentTab = 'servers';
 let availableOAuthProviders = [];  // Store available OAuth providers
+let capabilitiesPage = 1;
+const CAPABILITIES_PER_PAGE = 6; // Show 6 cards at a time
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -1050,7 +1052,7 @@ async function loadCapabilities() {
 
 function displayCapabilities(capabilities) {
     const container = document.getElementById('capabilitiesContainer');
-    
+
     if (Object.keys(capabilities).length === 0) {
         container.innerHTML = `
             <div class="empty-state">
@@ -1062,54 +1064,113 @@ function displayCapabilities(capabilities) {
         return;
     }
 
-    let html = '';
+    let html = '<div class="capability-square-grid">';
+
     for (const [serverId, capabilityData] of Object.entries(capabilities)) {
         const server = capabilityData.server_info;
         const tools = capabilityData.tools;
-        
+
+        // Generate server icon (first letter of server name)
+        const serverInitial = server.name.charAt(0).toUpperCase();
+
         html += `
-            <div class="capability-card">
-                <div class="capability-card-header">
-                    <div class="capability-card-title">${server.name}</div>
-                    <div class="capability-card-info">${tools.length} tools</div>
-                </div>
-                <div style="margin-bottom: 1rem;">
-                    <div style="font-size: 0.875rem; color: var(--text-secondary);">${server.description}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">
-                        <strong>URL:</strong> ${server.url}<br>
-                        <strong>Protocol:</strong> ${server.protocol_version}
+            <div class="capability-square-card ${!isCardExpanded(serverId) ? '' : 'expanded'}" id="card-${serverId}" onclick="toggleCardExpansion('${serverId}')">
+                <!-- Collapsed View (Square) -->
+                <div class="square-card-front">
+                    <div class="square-icon">${serverInitial}</div>
+                    <div class="square-title">${server.name}</div>
+                    <div class="square-count">${tools.length} tool${tools.length === 1 ? '' : 's'}</div>
+                    <div class="square-expand-hint">
+                        <i class="fas fa-chevron-down"></i>
+                        Click to expand
                     </div>
                 </div>
-                <div class="capability-tools">
-                    <div class="capability-tools-header">Available Tools</div>
-                    ${tools.map(tool => `
-                        <div class="tool-capability-item" data-tool="${tool.name}">
-                            <div class="tool-capability-header">
-                                <div class="tool-capability-name">${tool.name}</div>
-                                <div class="tool-capability-params">${tool.parameter_count} params</div>
-                            </div>
-                            <div class="tool-capability-description">${tool.description || 'No description'}</div>
-                            <div class="tool-capability-actions">
-                                <button class="btn btn-sm btn-outline" onclick="toggleRawJson('${serverId}-${tool.name}')">
-                                    <i class="fas fa-code"></i>
-                                    Raw JSON
-                                </button>
-                                <button class="btn btn-sm btn-primary" onclick="testToolFromCapabilities('${tool.name}')">
-                                    <i class="fas fa-play"></i>
-                                    Test
-                                </button>
-                            </div>
-                            <div id="raw-${serverId}-${tool.name}" class="raw-json-viewer">
-                                ${syntaxHighlight(JSON.stringify(tool.raw_json, null, 2))}
+
+                <!-- Expanded View (Details) -->
+                <div class="square-card-expanded" onclick="event.stopPropagation()">
+                    <div class="expanded-header">
+                        <div class="expanded-header-left">
+                            <div class="expanded-icon">${serverInitial}</div>
+                            <div>
+                                <div class="expanded-title">${server.name}</div>
+                                <div class="expanded-meta">
+                                    <span class="meta-badge">
+                                        <i class="fas fa-tools"></i> ${tools.length} tools
+                                    </span>
+                                    <span class="meta-badge">
+                                        <i class="fas fa-code"></i> ${server.protocol_version}
+                                    </span>
+                                </div>
                             </div>
                         </div>
-                    `).join('')}
+                        <button class="collapse-btn" onclick="toggleCardExpansion('${serverId}'); event.stopPropagation();">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <div class="expanded-description">
+                        ${server.description}
+                    </div>
+
+                    <div class="expanded-url">
+                        <i class="fas fa-link"></i>
+                        <span>${server.url}</span>
+                    </div>
+
+                    <div class="expanded-tools">
+                        <div class="expanded-tools-header">
+                            <i class="fas fa-cube"></i> Available Tools
+                        </div>
+                        <div class="expanded-tools-list">
+                            ${tools.map(tool => `
+                                <div class="expanded-tool-item">
+                                    <div class="expanded-tool-header">
+                                        <span class="expanded-tool-name">${tool.name}</span>
+                                        <span class="expanded-tool-params">${tool.parameter_count}p</span>
+                                    </div>
+                                    <div class="expanded-tool-desc">${tool.description || 'No description'}</div>
+                                    <div class="expanded-tool-actions">
+                                        <button class="tool-action-btn" onclick="toggleRawJson('${serverId}-${tool.name}'); event.stopPropagation();">
+                                            <i class="fas fa-code"></i> JSON
+                                        </button>
+                                        <button class="tool-action-btn primary" onclick="testFirstTool('${tool.name}'); event.stopPropagation();">
+                                            <i class="fas fa-play"></i> Test
+                                        </button>
+                                    </div>
+                                    <div id="raw-${serverId}-${tool.name}" class="tool-raw-json">
+                                        ${syntaxHighlight(JSON.stringify(tool.raw_json, null, 2))}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
     }
 
+    html += '</div>';
     container.innerHTML = html;
+}
+
+// Track expanded cards
+let expandedCards = new Set();
+
+function isCardExpanded(serverId) {
+    return expandedCards.has(serverId);
+}
+
+function toggleCardExpansion(serverId) {
+    const card = document.getElementById(`card-${serverId}`);
+    if (!card) return;
+
+    if (expandedCards.has(serverId)) {
+        expandedCards.delete(serverId);
+        card.classList.remove('expanded');
+    } else {
+        expandedCards.add(serverId);
+        card.classList.add('expanded');
+    }
 }
 
 function toggleRawJson(toolId) {
@@ -1122,6 +1183,81 @@ function testToolFromCapabilities(toolName) {
     switchTab('testing');
     document.getElementById('testToolSelect').value = toolName;
     document.getElementById('testToolSelect').dispatchEvent(new Event('change'));
+}
+
+// Marketplace card helper functions
+function testFirstTool(toolName) {
+    if (!toolName) return;
+    switchTab('testing');
+    document.getElementById('testToolSelect').value = toolName;
+    document.getElementById('testToolSelect').dispatchEvent(new Event('change'));
+}
+
+function viewAllServerTools(serverId) {
+    const capabilityData = currentCapabilities[serverId];
+    if (!capabilityData) return;
+
+    const server = capabilityData.server_info;
+    const tools = capabilityData.tools;
+
+    const modalHtml = `
+        <div class="server-tools-modal-content">
+            <div class="modal-header-section">
+                <div class="server-icon-large">${server.name.charAt(0).toUpperCase()}</div>
+                <div>
+                    <h2>${server.name}</h2>
+                    <p class="modal-server-url"><i class="fas fa-link"></i> ${server.url}</p>
+                </div>
+            </div>
+
+            <div class="modal-tools-grid">
+                ${tools.map(tool => `
+                    <div class="modal-tool-card">
+                        <div class="modal-tool-header">
+                            <span class="modal-tool-name">${tool.name}</span>
+                            <span class="tool-params-badge">${tool.parameter_count} params</span>
+                        </div>
+                        <div class="modal-tool-description">${tool.description || 'No description available'}</div>
+                        <div class="modal-tool-actions">
+                            <button class="btn btn-sm btn-outline" onclick="toggleRawJson('modal-${serverId}-${tool.name}')">
+                                <i class="fas fa-code"></i> JSON
+                            </button>
+                            <button class="btn btn-sm btn-primary" onclick="testFirstTool('${tool.name}'); hideModal('serverToolsModal')">
+                                <i class="fas fa-play"></i> Test
+                            </button>
+                        </div>
+                        <div id="raw-modal-${serverId}-${tool.name}" class="raw-json-viewer">
+                            ${syntaxHighlight(JSON.stringify(tool.raw_json, null, 2))}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    const modal = document.getElementById('serverToolsModal');
+    if (!modal) {
+        // Create modal if it doesn't exist
+        const newModal = document.createElement('div');
+        newModal.id = 'serverToolsModal';
+        newModal.className = 'modal';
+        newModal.innerHTML = `
+            <div class="modal-content modal-large">
+                <span class="close" onclick="hideModal('serverToolsModal')">&times;</span>
+                <div id="serverToolsModalContent"></div>
+            </div>
+        `;
+        document.body.appendChild(newModal);
+        document.getElementById('serverToolsModalContent').innerHTML = modalHtml;
+        newModal.style.display = 'block';
+    } else {
+        document.getElementById('serverToolsModalContent').innerHTML = modalHtml;
+        modal.style.display = 'block';
+    }
+}
+
+function expandServerTools(serverId) {
+    viewAllServerTools(serverId);
 }
 
 function exportCapabilities() {
