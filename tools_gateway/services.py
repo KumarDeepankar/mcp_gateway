@@ -522,31 +522,54 @@ class DiscoveryService:
         """
         Gets an aggregated list of all tools from all servers.
         Enhanced with caching and better error handling per specification.
+        Includes OAuth provider associations.
         """
         if not self.tool_to_server_map:
             await self.refresh_tool_index()
 
         all_tools = []
-        
+
         # Get server URLs from storage if available
         unique_servers = set(self.tool_to_server_map.values()) if self.tool_to_server_map else self.server_urls
+        server_id_map = {}  # Map URLs to server IDs
+
         if self.storage_manager:
             try:
                 stored_servers = await self.storage_manager.get_all_servers()
                 if stored_servers:
                     unique_servers = set(server.url for server in stored_servers.values())
+                    # Create mapping of URL to server_id
+                    for server_id, server_info in stored_servers.items():
+                        server_id_map[server_info.url] = server_id
             except Exception as e:
                 logger.error(f"Error loading servers from storage: {e}")
-        
+
+        # Get OAuth associations from database
+        from database import database
+        all_oauth_associations = {}
+        try:
+            associations = database.get_all_tool_oauth_associations()
+            # Group by (server_id, tool_name)
+            for assoc in associations:
+                key = (assoc['server_id'], assoc['tool_name'])
+                if key not in all_oauth_associations:
+                    all_oauth_associations[key] = []
+                all_oauth_associations[key].append({
+                    'provider_id': assoc['oauth_provider_id'],
+                    'provider_name': assoc.get('provider_name')
+                })
+        except Exception as e:
+            logger.error(f"Error loading OAuth associations: {e}")
+
         # Fetch from all unique servers
         tasks = [self._fetch_tools_from_server(url) for url in unique_servers]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         for result in results:
             if isinstance(result, Exception):
                 logger.error(f"Exception during tool fetching: {result}")
                 continue
-            
+
             server_url, tools = result
             if tools:
                 # Add server metadata to each tool for better tracking
@@ -554,10 +577,21 @@ class DiscoveryService:
                     if isinstance(tool, dict):
                         tool['_server_url'] = server_url
                         tool['_discovery_timestamp'] = datetime.now().isoformat()
+
+                        # Add OAuth provider associations
+                        server_id = server_id_map.get(server_url)
+                        if server_id:
+                            tool['_server_id'] = server_id
+                            tool_name = tool.get('name')
+                            if tool_name:
+                                key = (server_id, tool_name)
+                                oauth_providers = all_oauth_associations.get(key, [])
+                                tool['_oauth_providers'] = oauth_providers
+
                 all_tools.extend(tools)
             else:
                 logger.debug(f"No tools received from {server_url}")
-        
+
         logger.info(f"Aggregated {len(all_tools)} tools from {len(unique_servers)} servers")
         return all_tools
 

@@ -769,6 +769,274 @@ async def remove_oauth_provider(request: Request, provider_id: str):
 
 
 # =====================================================================
+# TOOL OAUTH ASSOCIATION ENDPOINTS
+# =====================================================================
+
+@app.get("/admin/tools/oauth-providers")
+async def get_tools_oauth_providers(request: Request):
+    """Get all tool-OAuth associations (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.TOOL_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+    associations = database.get_all_tool_oauth_associations()
+
+    return JSONResponse(content={"associations": associations})
+
+
+@app.post("/admin/tools/{server_id}/{tool_name}/oauth-providers")
+async def set_tool_oauth_providers(request: Request, server_id: str, tool_name: str, request_data: Dict[str, Any]):
+    """Set OAuth providers for a specific tool (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+
+    oauth_provider_ids = request_data.get("oauth_provider_ids", [])
+
+    # Validate that all provider IDs exist
+    for provider_id in oauth_provider_ids:
+        provider = oauth_provider_manager.get_provider(provider_id)
+        if not provider:
+            raise HTTPException(status_code=404, detail=f"OAuth provider not found: {provider_id}")
+
+    success = database.set_tool_oauth_providers(server_id, tool_name, oauth_provider_ids)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.CONFIG_UPDATED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="tool_oauth",
+            resource_id=f"{server_id}/{tool_name}",
+            details={
+                "action": "set_oauth_providers",
+                "server_id": server_id,
+                "tool_name": tool_name,
+                "provider_count": len(oauth_provider_ids)
+            }
+        )
+
+    return JSONResponse(content={
+        "success": success,
+        "message": f"Set {len(oauth_provider_ids)} OAuth provider(s) for tool {tool_name}"
+    })
+
+
+@app.get("/admin/tools/{server_id}/{tool_name}/oauth-providers")
+async def get_tool_oauth_providers(request: Request, server_id: str, tool_name: str):
+    """Get OAuth providers for a specific tool (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.TOOL_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+    provider_ids = database.get_tool_oauth_providers(server_id, tool_name)
+
+    # Get full provider details
+    providers = []
+    for provider_id in provider_ids:
+        provider = oauth_provider_manager.get_provider(provider_id)
+        if provider:
+            providers.append({
+                "provider_id": provider.provider_id,
+                "provider_name": provider.provider_name,
+                "enabled": provider.enabled
+            })
+
+    return JSONResponse(content={"oauth_providers": providers})
+
+
+@app.delete("/admin/tools/{server_id}/{tool_name}/oauth-providers")
+async def clear_tool_oauth_providers(request: Request, server_id: str, tool_name: str):
+    """Clear all OAuth providers for a specific tool (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+    success = database.clear_tool_oauth_associations(server_id, tool_name)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.CONFIG_UPDATED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="tool_oauth",
+            resource_id=f"{server_id}/{tool_name}",
+            details={"action": "clear_oauth_providers"}
+        )
+
+    return JSONResponse(content={
+        "success": success,
+        "message": f"Cleared OAuth providers for tool {tool_name}"
+    })
+
+
+# =====================================================================
+# TOOL LOCAL CREDENTIALS ENDPOINTS
+# =====================================================================
+
+@app.post("/admin/tools/{server_id}/{tool_name}/credentials")
+async def create_tool_credential(request: Request, server_id: str, tool_name: str, request_data: Dict[str, Any]):
+    """Create local credential for a specific tool (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+
+    username = request_data.get("username")
+    password = request_data.get("password")
+    description = request_data.get("description", "")
+
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="username and password are required")
+
+    # Validate that server and tool exist
+    servers = await mcp_storage_manager.get_all_servers()
+    if server_id not in servers:
+        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+
+    credential_id = database.create_tool_local_credential(
+        server_id=server_id,
+        tool_name=tool_name,
+        username=username,
+        password=password,
+        description=description
+    )
+
+    if not credential_id:
+        raise HTTPException(status_code=500, detail="Failed to create credential")
+
+    audit_logger.log_event(
+        AuditEventType.CONFIG_UPDATED,
+        user_id=user.user_id,
+        user_email=user.email,
+        resource_type="tool_credential",
+        resource_id=credential_id,
+        details={
+            "action": "create_credential",
+            "server_id": server_id,
+            "tool_name": tool_name,
+            "username": username
+        }
+    )
+
+    return JSONResponse(content={
+        "success": True,
+        "credential_id": credential_id,
+        "message": f"Created credential for {username} on tool {tool_name}"
+    })
+
+
+@app.get("/admin/tools/{server_id}/{tool_name}/credentials")
+async def get_tool_credentials(request: Request, server_id: str, tool_name: str):
+    """Get all local credentials for a specific tool (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.TOOL_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+    credentials = database.get_tool_local_credentials(server_id, tool_name)
+
+    return JSONResponse(content={"credentials": credentials})
+
+
+@app.get("/admin/tools/credentials")
+async def get_all_tool_credentials(request: Request):
+    """Get all local credentials across all tools (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.TOOL_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+    credentials = database.get_all_tool_local_credentials()
+
+    return JSONResponse(content={"credentials": credentials})
+
+
+@app.put("/admin/tools/credentials/{credential_id}")
+async def update_tool_credential(request: Request, credential_id: str, request_data: Dict[str, Any]):
+    """Update local credential (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+
+    # Check if credential exists
+    credential = database.get_tool_local_credential_by_id(credential_id)
+    if not credential:
+        raise HTTPException(status_code=404, detail="Credential not found")
+
+    password = request_data.get("password")
+    description = request_data.get("description")
+    enabled = request_data.get("enabled")
+
+    success = database.update_tool_local_credential(
+        credential_id=credential_id,
+        password=password,
+        description=description,
+        enabled=enabled
+    )
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.CONFIG_UPDATED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="tool_credential",
+            resource_id=credential_id,
+            details={"action": "update_credential"}
+        )
+
+    return JSONResponse(content={
+        "success": success,
+        "message": "Credential updated successfully"
+    })
+
+
+@app.delete("/admin/tools/credentials/{credential_id}")
+async def delete_tool_credential(request: Request, credential_id: str):
+    """Delete local credential (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+
+    # Check if credential exists
+    credential = database.get_tool_local_credential_by_id(credential_id)
+    if not credential:
+        raise HTTPException(status_code=404, detail="Credential not found")
+
+    success = database.delete_tool_local_credential(credential_id)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.CONFIG_UPDATED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="tool_credential",
+            resource_id=credential_id,
+            details={
+                "action": "delete_credential",
+                "server_id": credential['server_id'],
+                "tool_name": credential['tool_name'],
+                "username": credential['username']
+            }
+        )
+
+    return JSONResponse(content={
+        "success": success,
+        "message": "Credential deleted successfully"
+    })
+
+
+# =====================================================================
 # USER & ROLE MANAGEMENT ENDPOINTS (RBAC)
 # =====================================================================
 
@@ -896,6 +1164,55 @@ async def create_role(request: Request, request_data: Dict[str, Any]):
     return JSONResponse(content={
         "success": True,
         "role_id": role.role_id
+    })
+
+
+@app.put("/admin/roles/{role_id}")
+async def update_role(request: Request, role_id: str, request_data: Dict[str, Any]):
+    """Update role (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Check if role exists and is not a system role
+    role = rbac_manager.get_role(role_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    if role.is_system:
+        raise HTTPException(status_code=400, detail="Cannot modify system roles")
+
+    # Get update parameters
+    role_name = request_data.get("role_name")
+    description = request_data.get("description")
+    permissions_str = request_data.get("permissions")
+
+    # Convert string permissions to Permission enum if provided
+    permissions = None
+    if permissions_str is not None:
+        permissions = {Permission(p) for p in permissions_str if p in [perm.value for perm in Permission]}
+
+    # Update role
+    updated_role = rbac_manager.update_role(
+        role_id=role_id,
+        role_name=role_name,
+        description=description,
+        permissions=permissions
+    )
+
+    if updated_role:
+        audit_logger.log_event(
+            AuditEventType.ROLE_UPDATED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="role",
+            resource_id=role_id,
+            details={"role_name": updated_role.role_name}
+        )
+
+    return JSONResponse(content={
+        "success": True,
+        "role_id": role_id
     })
 
 
@@ -1837,6 +2154,99 @@ async def mcp_post_endpoint(
                     return JSONResponse(content=error_response, status_code=404)
                 else:
                     raise HTTPException(status_code=404, detail=f"Tool not found: {tool_name}")
+
+            # === AUTHENTICATION VALIDATION ===
+            # Get tool metadata to check for required authentication
+            from database import database
+            all_tools = await discovery_service.get_all_tools()
+            tool_metadata = next((t for t in all_tools if t.get('name') == tool_name), None)
+
+            logger.info(f"🔐 AUTH DEBUG: tool_name={tool_name}, tool_metadata found={tool_metadata is not None}")
+
+            if tool_metadata:
+                server_id = tool_metadata.get('_server_id')
+                oauth_providers = tool_metadata.get('_oauth_providers', [])
+                logger.info(f"🔐 AUTH DEBUG: server_id={server_id}, oauth_providers={oauth_providers}")
+
+                # Check if tool has any authentication requirements
+                local_credentials = database.get_tool_local_credentials(server_id, tool_name) if server_id else []
+                logger.info(f"🔐 AUTH DEBUG: local_credentials count={len(local_credentials)}")
+
+                if oauth_providers or local_credentials:
+                    # Authentication is required - validate credentials
+                    logger.info(f"Tool {tool_name} requires authentication: OAuth providers={len(oauth_providers)}, Local credentials={len(local_credentials)}")
+
+                    # Check for tool-specific authentication in request headers
+                    tool_auth_type = request.headers.get("X-Tool-Auth-Type")  # "oauth" or "local"
+                    tool_auth_token = request.headers.get("X-Tool-Auth-Token")  # OAuth token or local credentials
+
+                    authenticated = False
+
+                    # Try OAuth authentication
+                    if tool_auth_type == "oauth" and tool_auth_token and oauth_providers:
+                        # Validate OAuth token against configured providers
+                        # For now, we'll accept any valid JWT token
+                        # In production, verify it matches one of the configured OAuth providers
+                        try:
+                            payload = jwt_manager.verify_token(tool_auth_token)
+                            if payload:
+                                authenticated = True
+                                logger.info(f"OAuth authentication successful for tool {tool_name}")
+                        except Exception as e:
+                            logger.warning(f"OAuth token validation failed: {e}")
+
+                    # Try local credential authentication
+                    elif tool_auth_type == "local" and tool_auth_token and local_credentials:
+                        # Parse username:password from token
+                        try:
+                            import base64
+                            decoded = base64.b64decode(tool_auth_token).decode('utf-8')
+                            username, password = decoded.split(':', 1)
+
+                            # Verify credentials
+                            credential_id = database.verify_tool_local_credential(
+                                server_id=server_id,
+                                tool_name=tool_name,
+                                username=username,
+                                password=password
+                            )
+
+                            if credential_id:
+                                authenticated = True
+                                logger.info(f"Local authentication successful for tool {tool_name} with user {username}")
+                        except Exception as e:
+                            logger.warning(f"Local credential validation failed: {e}")
+
+                    # If authentication required but not provided or failed
+                    if not authenticated:
+                        logger.warning(f"Authentication required but not provided or invalid for tool {tool_name}")
+                        error_response = mcp_gateway.create_error_response(
+                            request_id,
+                            -32001,
+                            f"Authentication required for tool {tool_name}. Provide X-Tool-Auth-Type and X-Tool-Auth-Token headers."
+                        )
+
+                        audit_logger.log_event(
+                            AuditEventType.AUTH_LOGIN_FAILURE,
+                            severity=AuditSeverity.WARNING,
+                            ip_address=request.client.host if request.client else None,
+                            resource_type="tool",
+                            resource_id=tool_name,
+                            details={"reason": "authentication_required", "auth_type": tool_auth_type},
+                            success=False
+                        )
+
+                        return JSONResponse(content=error_response, status_code=401)
+
+                    # Log successful authentication
+                    audit_logger.log_event(
+                        AuditEventType.AUTH_LOGIN_SUCCESS,
+                        ip_address=request.client.host if request.client else None,
+                        resource_type="tool",
+                        resource_id=tool_name,
+                        details={"auth_type": tool_auth_type}
+                    )
+            # === END AUTHENTICATION VALIDATION ===
 
             # Forward the request and stream the response back
             async def gateway_streaming_wrapper():

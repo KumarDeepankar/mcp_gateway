@@ -73,6 +73,7 @@ function setupEventListeners() {
             loadADConfig();
             loadADMappings();
             loadUsers();
+            loadRoles();  // Also load roles since they're in the same tab
         });
     }
 
@@ -753,11 +754,19 @@ function displayRoles(roles) {
                         ${r.permissions.slice(0, 5).map(p => `<span class="permission-badge">${p}</span>`).join('')}
                         ${r.permissions.length > 5 ? `<span class="more">+${r.permissions.length - 5} more</span>` : ''}
                     </div>
-                    ${!r.is_system ? `
-                        <button class="btn btn-sm btn-danger" onclick="deleteRole('${r.role_id}')">
-                            <i class="fas fa-trash"></i> Delete
+                    <div class="role-actions">
+                        <button class="btn btn-sm btn-outline" onclick="viewRoleDetails('${r.role_id}')">
+                            <i class="fas fa-eye"></i> View
                         </button>
-                    ` : ''}
+                        ${!r.is_system ? `
+                            <button class="btn btn-sm btn-primary" onclick="showEditRoleModal('${r.role_id}')">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteRole('${r.role_id}')">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        ` : ''}
+                    </div>
                 </div>
             `).join('')}
         </div>
@@ -996,7 +1005,25 @@ function closeModal(modalId) {
 function showAddUserModal() {
     // Load available roles first
     loadRolesForUserModal();
+    // Show password field by default (for manual provider)
+    togglePasswordField();
     showModal('addUserModal');
+}
+
+// Toggle password field visibility based on provider
+function togglePasswordField() {
+    const provider = document.getElementById('userProvider').value;
+    const passwordGroup = document.getElementById('userPasswordGroup');
+
+    // Show password field only for manual/local provider
+    if (provider === 'manual') {
+        passwordGroup.style.display = 'block';
+        document.getElementById('userPassword').setAttribute('required', 'required');
+    } else {
+        passwordGroup.style.display = 'none';
+        document.getElementById('userPassword').removeAttribute('required');
+        document.getElementById('userPassword').value = ''; // Clear password field
+    }
 }
 
 // Load roles for the Add User Modal
@@ -1010,7 +1037,7 @@ async function loadRolesForUserModal() {
 
         if (response.ok) {
             const data = await response.json();
-            const rolesSelect = document.getElementById('userRoles');
+            const rolesSelect = document.getElementById('userRolesSelect');
 
             rolesSelect.innerHTML = data.roles.map(role => `
                 <label class="checkbox-item">
@@ -1027,23 +1054,46 @@ async function loadRolesForUserModal() {
 
 // Save New User
 async function saveNewUser() {
-    const email = document.getElementById('userName').value.trim();
-    const name = document.getElementById('userDisplayName').value.trim();
+    const email = document.getElementById('userEmail').value.trim();
+    const name = document.getElementById('userName').value.trim();
+    const provider = document.getElementById('userProvider').value;
     const password = document.getElementById('userPassword').value;
 
     // Get selected roles
-    const selectedRoles = Array.from(document.querySelectorAll('#userRoles input[name="roles"]:checked'))
+    const selectedRoles = Array.from(document.querySelectorAll('#userRolesSelect input[name="roles"]:checked'))
         .map(cb => cb.value);
 
     // Validation
-    if (!email || !password) {
-        showNotification('Email and password are required', 'error');
+    if (!email || !name) {
+        showNotification('Email and name are required', 'error');
+        return;
+    }
+
+    // Validate password for manual/local provider
+    if (provider === 'manual' && !password) {
+        showNotification('Password is required for Manual (Local) authentication', 'error');
         return;
     }
 
     if (selectedRoles.length === 0) {
         showNotification('Please select at least one role', 'error');
         return;
+    }
+
+    // Map "manual" to "local" for backend compatibility
+    const backendProvider = provider === 'manual' ? 'local' : provider;
+
+    // Build request body
+    const requestBody = {
+        email: email,
+        name: name,
+        roles: selectedRoles,
+        provider: backendProvider
+    };
+
+    // Only include password for local provider
+    if (provider === 'manual' && password) {
+        requestBody.password = password;
     }
 
     try {
@@ -1053,13 +1103,7 @@ async function saveNewUser() {
                 'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                email: email,
-                name: name,
-                password: password,
-                roles: selectedRoles,
-                provider: 'local'
-            })
+            body: JSON.stringify(requestBody)
         });
 
         if (response.ok) {
@@ -1193,6 +1237,206 @@ async function deleteRole(roleId) {
     } catch (error) {
         console.error('Error deleting role:', error);
         showNotification('Error deleting role: ' + error.message, 'error');
+    }
+}
+
+// Show Edit Role Modal
+async function showEditRoleModal(roleId) {
+    try {
+        // Fetch role details
+        const response = await fetch(`/admin/roles`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const role = data.roles.find(r => r.role_id === roleId);
+
+            if (!role) {
+                showNotification('Role not found', 'error');
+                return;
+            }
+
+            // Populate edit form
+            document.getElementById('editRoleId').value = role.role_id;
+            document.getElementById('editRoleName').value = role.role_name;
+            document.getElementById('editRoleDescription').value = role.description || '';
+
+            // Load permissions grid for edit
+            await loadPermissionsForEdit(role.permissions);
+
+            // Show modal
+            showModal('editRoleModal');
+        } else {
+            showNotification('Failed to load role details', 'error');
+        }
+    } catch (error) {
+        console.error('Error loading role for edit:', error);
+        showNotification('Error loading role: ' + error.message, 'error');
+    }
+}
+
+// Load permissions grid for editing with pre-selected permissions
+async function loadPermissionsForEdit(selectedPermissions) {
+    const permissionsGrid = document.getElementById('editPermissionsGrid');
+
+    // All available permissions
+    const allPermissions = [
+        { id: 'SERVER_READ', name: 'Server Read', description: 'View MCP servers and configurations' },
+        { id: 'SERVER_WRITE', name: 'Server Write', description: 'Add, modify, or remove MCP servers' },
+        { id: 'TOOL_EXECUTE', name: 'Tool Execute', description: 'Execute tools from MCP servers' },
+        { id: 'RESOURCE_READ', name: 'Resource Read', description: 'Access resources from MCP servers' },
+        { id: 'PROMPT_READ', name: 'Prompt Read', description: 'View available prompts' },
+        { id: 'PROMPT_EXECUTE', name: 'Prompt Execute', description: 'Execute prompts' },
+        { id: 'CONFIG_READ', name: 'Config Read', description: 'View gateway configuration' },
+        { id: 'CONFIG_WRITE', name: 'Config Write', description: 'Modify gateway configuration' },
+        { id: 'USER_READ', name: 'User Read', description: 'View users and their information' },
+        { id: 'USER_WRITE', name: 'User Write', description: 'Add, modify, or remove users' },
+        { id: 'ROLE_READ', name: 'Role Read', description: 'View roles and permissions' },
+        { id: 'ROLE_WRITE', name: 'Role Write', description: 'Create, modify, or delete roles' },
+        { id: 'AUDIT_READ', name: 'Audit Read', description: 'View audit logs and statistics' },
+        { id: 'OAUTH_MANAGE', name: 'OAuth Manage', description: 'Manage OAuth providers' },
+        { id: 'ADMIN', name: 'Admin', description: 'Full administrative access' },
+        { id: 'SYSTEM', name: 'System', description: 'System-level operations (reserved)' }
+    ];
+
+    permissionsGrid.innerHTML = allPermissions.map(perm => {
+        const isChecked = selectedPermissions.includes(perm.id);
+        return `
+            <label class="checkbox-item">
+                <input type="checkbox" name="editPermissions" value="${perm.id}" ${isChecked ? 'checked' : ''}>
+                <div>
+                    <strong>${perm.name}</strong>
+                    <small>${perm.description}</small>
+                </div>
+            </label>
+        `;
+    }).join('');
+}
+
+// Update Role
+async function updateRole() {
+    const roleId = document.getElementById('editRoleId').value;
+    const roleName = document.getElementById('editRoleName').value.trim();
+    const description = document.getElementById('editRoleDescription').value.trim();
+
+    // Get selected permissions
+    const selectedPermissions = Array.from(document.querySelectorAll('#editPermissionsGrid input[name="editPermissions"]:checked'))
+        .map(cb => cb.value);
+
+    // Validation
+    if (!roleName) {
+        showNotification('Role name is required', 'error');
+        return;
+    }
+
+    if (selectedPermissions.length === 0) {
+        showNotification('Please select at least one permission', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/admin/roles/${roleId}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                role_name: roleName,
+                description: description,
+                permissions: selectedPermissions
+            })
+        });
+
+        if (response.ok) {
+            showNotification('Role updated successfully', 'success');
+            closeModal('editRoleModal');
+            loadRoles();
+        } else {
+            const error = await response.json();
+            showNotification('Failed to update role: ' + (error.detail || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        console.error('Error updating role:', error);
+        showNotification('Error updating role: ' + error.message, 'error');
+    }
+}
+
+// View Role Details
+async function viewRoleDetails(roleId) {
+    try {
+        // Fetch role details
+        const response = await fetch(`/admin/roles`, {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const role = data.roles.find(r => r.role_id === roleId);
+
+            if (!role) {
+                showNotification('Role not found', 'error');
+                return;
+            }
+
+            // Build role details display
+            const permissionsList = role.permissions.map(p => `
+                <li><span class="permission-badge">${p}</span></li>
+            `).join('');
+
+            const viewContent = document.getElementById('viewRoleContent');
+            viewContent.innerHTML = `
+                <div class="role-details-view">
+                    <div class="detail-row">
+                        <label>Role Name:</label>
+                        <div class="detail-value">
+                            <strong>${role.role_name}</strong>
+                            ${role.is_system ? '<span class="badge badge-info">System Role</span>' : ''}
+                        </div>
+                    </div>
+                    <div class="detail-row">
+                        <label>Description:</label>
+                        <div class="detail-value">${role.description || '<em>No description</em>'}</div>
+                    </div>
+                    <div class="detail-row">
+                        <label>Role ID:</label>
+                        <div class="detail-value"><code>${role.role_id}</code></div>
+                    </div>
+                    <div class="detail-row">
+                        <label>Users:</label>
+                        <div class="detail-value">${role.user_count} users assigned to this role</div>
+                    </div>
+                    <div class="detail-row">
+                        <label>Permissions (${role.permissions.length}):</label>
+                        <div class="detail-value">
+                            <ul class="permissions-list">
+                                ${permissionsList}
+                            </ul>
+                        </div>
+                    </div>
+                    ${role.is_system ? `
+                        <div class="alert alert-info" style="margin-top: 20px;">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>System Role</strong>
+                            <p>This is a system-defined role and cannot be modified or deleted.</p>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+
+            // Show modal
+            showModal('viewRoleModal');
+        } else {
+            showNotification('Failed to load role details', 'error');
+        }
+    } catch (error) {
+        console.error('Error loading role details:', error);
+        showNotification('Error loading role: ' + error.message, 'error');
     }
 }
 

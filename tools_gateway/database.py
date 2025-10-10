@@ -23,7 +23,7 @@ class Database:
     """
 
     # Database schema version
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 4
 
     # SQL schema definitions
     SCHEMA = """
@@ -134,6 +134,35 @@ class Database:
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Tool OAuth Associations (Many-to-Many)
+    CREATE TABLE IF NOT EXISTS tool_oauth_associations (
+        association_id TEXT PRIMARY KEY,
+        server_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        oauth_provider_id TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(server_id, tool_name, oauth_provider_id),
+        FOREIGN KEY (server_id) REFERENCES mcp_servers(server_id) ON DELETE CASCADE,
+        FOREIGN KEY (oauth_provider_id) REFERENCES oauth_providers(provider_id) ON DELETE CASCADE
+    );
+
+    -- Local Auth Credentials for Tools (Tool-specific API Keys/Credentials)
+    CREATE TABLE IF NOT EXISTS tool_local_credentials (
+        credential_id TEXT PRIMARY KEY,
+        server_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        username TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        description TEXT,
+        enabled BOOLEAN DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_used DATETIME,
+        UNIQUE(server_id, tool_name, username),
+        FOREIGN KEY (server_id) REFERENCES mcp_servers(server_id) ON DELETE CASCADE
+    );
+
     -- Audit Logs (no foreign key to allow logging for any user, even if not in system)
     CREATE TABLE IF NOT EXISTS audit_logs (
         event_id TEXT PRIMARY KEY,
@@ -165,6 +194,9 @@ class Database:
     CREATE INDEX IF NOT EXISTS idx_audit_severity ON audit_logs(severity);
     CREATE INDEX IF NOT EXISTS idx_role_tool_role ON role_tool_permissions(role_id);
     CREATE INDEX IF NOT EXISTS idx_role_tool_server ON role_tool_permissions(server_id);
+    CREATE INDEX IF NOT EXISTS idx_tool_oauth_server ON tool_oauth_associations(server_id);
+    CREATE INDEX IF NOT EXISTS idx_tool_oauth_tool ON tool_oauth_associations(tool_name);
+    CREATE INDEX IF NOT EXISTS idx_tool_oauth_provider ON tool_oauth_associations(oauth_provider_id);
     """
 
     def __init__(self, db_path: str = "tools_gateway.db"):
@@ -878,6 +910,291 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to get all config: {e}")
             return {}
+
+    # ===========================================
+    # Tool OAuth Associations Operations
+    # ===========================================
+
+    def add_tool_oauth_association(self, server_id: str, tool_name: str, oauth_provider_id: str) -> bool:
+        """Associate an OAuth provider with a tool"""
+        try:
+            import uuid
+            association_id = str(uuid.uuid4())
+
+            with self.transaction() as conn:
+                conn.execute("""
+                    INSERT OR IGNORE INTO tool_oauth_associations
+                    (association_id, server_id, tool_name, oauth_provider_id, updated_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (association_id, server_id, tool_name, oauth_provider_id))
+                logger.info(f"Added tool OAuth association: server={server_id}, tool={tool_name}, provider={oauth_provider_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to add tool OAuth association: {e}")
+            return False
+
+    def remove_tool_oauth_association(self, server_id: str, tool_name: str, oauth_provider_id: str) -> bool:
+        """Remove OAuth provider association from a tool"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("""
+                    DELETE FROM tool_oauth_associations
+                    WHERE server_id = ? AND tool_name = ? AND oauth_provider_id = ?
+                """, (server_id, tool_name, oauth_provider_id))
+                logger.info(f"Removed tool OAuth association: server={server_id}, tool={tool_name}, provider={oauth_provider_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to remove tool OAuth association: {e}")
+            return False
+
+    def get_tool_oauth_providers(self, server_id: str, tool_name: str) -> List[str]:
+        """Get all OAuth provider IDs associated with a tool"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT oauth_provider_id
+                FROM tool_oauth_associations
+                WHERE server_id = ? AND tool_name = ?
+                ORDER BY created_at
+            """, (server_id, tool_name))
+            return [row['oauth_provider_id'] for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get tool OAuth providers: {e}")
+            return []
+
+    def set_tool_oauth_providers(self, server_id: str, tool_name: str, oauth_provider_ids: List[str]) -> bool:
+        """Set the complete list of OAuth providers for a tool (replaces existing)"""
+        try:
+            import uuid
+            with self.transaction() as conn:
+                # First, remove all existing associations for this tool
+                conn.execute("""
+                    DELETE FROM tool_oauth_associations
+                    WHERE server_id = ? AND tool_name = ?
+                """, (server_id, tool_name))
+
+                # Then, add the new associations
+                for provider_id in oauth_provider_ids:
+                    association_id = str(uuid.uuid4())
+                    conn.execute("""
+                        INSERT INTO tool_oauth_associations
+                        (association_id, server_id, tool_name, oauth_provider_id)
+                        VALUES (?, ?, ?, ?)
+                    """, (association_id, server_id, tool_name, provider_id))
+
+                logger.info(f"Set {len(oauth_provider_ids)} OAuth providers for tool {tool_name} on server {server_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to set tool OAuth providers: {e}")
+            return False
+
+    def get_all_tool_oauth_associations(self) -> List[Dict[str, Any]]:
+        """Get all tool OAuth associations"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT toa.*, op.provider_name, ms.name as server_name
+                FROM tool_oauth_associations toa
+                LEFT JOIN oauth_providers op ON toa.oauth_provider_id = op.provider_id
+                LEFT JOIN mcp_servers ms ON toa.server_id = ms.server_id
+                ORDER BY toa.server_id, toa.tool_name
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get all tool OAuth associations: {e}")
+            return []
+
+    def clear_tool_oauth_associations(self, server_id: str, tool_name: str) -> bool:
+        """Clear all OAuth provider associations for a tool"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("""
+                    DELETE FROM tool_oauth_associations
+                    WHERE server_id = ? AND tool_name = ?
+                """, (server_id, tool_name))
+                logger.info(f"Cleared OAuth associations for tool: {tool_name}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to clear tool OAuth associations: {e}")
+            return False
+
+    # ===========================================
+    # Tool Local Credentials Operations
+    # ===========================================
+
+    def create_tool_local_credential(self, server_id: str, tool_name: str, username: str,
+                                     password: str, description: str = "") -> Optional[str]:
+        """Create a local credential for a tool. Returns credential_id on success, None on failure."""
+        try:
+            import uuid
+            import bcrypt
+
+            credential_id = str(uuid.uuid4())
+            password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+            with self.transaction() as conn:
+                conn.execute("""
+                    INSERT INTO tool_local_credentials
+                    (credential_id, server_id, tool_name, username, password_hash, description)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (credential_id, server_id, tool_name, username, password_hash, description))
+                logger.info(f"Created local credential for tool {tool_name}: {username}")
+                return credential_id
+        except Exception as e:
+            logger.error(f"Failed to create tool local credential: {e}")
+            return None
+
+    def get_tool_local_credentials(self, server_id: str, tool_name: str) -> List[Dict[str, Any]]:
+        """Get all local credentials for a specific tool"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT credential_id, server_id, tool_name, username, description,
+                       enabled, created_at, updated_at, last_used
+                FROM tool_local_credentials
+                WHERE server_id = ? AND tool_name = ?
+                ORDER BY created_at DESC
+            """, (server_id, tool_name))
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get tool local credentials: {e}")
+            return []
+
+    def get_all_tool_local_credentials(self) -> List[Dict[str, Any]]:
+        """Get all local credentials across all tools"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT tlc.credential_id, tlc.server_id, tlc.tool_name, tlc.username,
+                       tlc.description, tlc.enabled, tlc.created_at, tlc.updated_at,
+                       tlc.last_used, ms.name as server_name
+                FROM tool_local_credentials tlc
+                LEFT JOIN mcp_servers ms ON tlc.server_id = ms.server_id
+                ORDER BY tlc.server_id, tlc.tool_name, tlc.created_at DESC
+            """)
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get all tool local credentials: {e}")
+            return []
+
+    def verify_tool_local_credential(self, server_id: str, tool_name: str,
+                                    username: str, password: str) -> Optional[str]:
+        """
+        Verify local credential for a tool.
+        Returns credential_id if valid and enabled, None otherwise.
+        Also updates last_used timestamp on successful verification.
+        """
+        try:
+            import bcrypt
+
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT credential_id, password_hash, enabled
+                FROM tool_local_credentials
+                WHERE server_id = ? AND tool_name = ? AND username = ?
+            """, (server_id, tool_name, username))
+
+            row = cursor.fetchone()
+            if not row:
+                logger.warning(f"Local credential not found: {server_id}/{tool_name}/{username}")
+                return None
+
+            if not row['enabled']:
+                logger.warning(f"Local credential disabled: {server_id}/{tool_name}/{username}")
+                return None
+
+            # Verify password
+            password_hash = row['password_hash'].encode('utf-8')
+            if bcrypt.checkpw(password.encode('utf-8'), password_hash):
+                credential_id = row['credential_id']
+                # Update last_used timestamp
+                self.update_credential_last_used(credential_id)
+                logger.info(f"Local credential verified: {server_id}/{tool_name}/{username}")
+                return credential_id
+            else:
+                logger.warning(f"Invalid password for local credential: {server_id}/{tool_name}/{username}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Failed to verify tool local credential: {e}")
+            return None
+
+    def update_credential_last_used(self, credential_id: str) -> bool:
+        """Update the last_used timestamp for a credential"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("""
+                    UPDATE tool_local_credentials
+                    SET last_used = CURRENT_TIMESTAMP
+                    WHERE credential_id = ?
+                """, (credential_id,))
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update credential last_used: {e}")
+            return False
+
+    def update_tool_local_credential(self, credential_id: str, password: Optional[str] = None,
+                                    description: Optional[str] = None, enabled: Optional[bool] = None) -> bool:
+        """Update a local credential (password, description, or enabled status)"""
+        try:
+            with self.transaction() as conn:
+                updates = []
+                params = []
+
+                if password is not None:
+                    import bcrypt
+                    password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+                    updates.append("password_hash = ?")
+                    params.append(password_hash)
+
+                if description is not None:
+                    updates.append("description = ?")
+                    params.append(description)
+
+                if enabled is not None:
+                    updates.append("enabled = ?")
+                    params.append(enabled)
+
+                if not updates:
+                    return True  # Nothing to update
+
+                updates.append("updated_at = CURRENT_TIMESTAMP")
+                params.append(credential_id)
+
+                query = f"UPDATE tool_local_credentials SET {', '.join(updates)} WHERE credential_id = ?"
+                conn.execute(query, params)
+                logger.info(f"Updated local credential: {credential_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update tool local credential: {e}")
+            return False
+
+    def delete_tool_local_credential(self, credential_id: str) -> bool:
+        """Delete a local credential"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("DELETE FROM tool_local_credentials WHERE credential_id = ?", (credential_id,))
+                logger.info(f"Deleted local credential: {credential_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete tool local credential: {e}")
+            return False
+
+    def get_tool_local_credential_by_id(self, credential_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific local credential by ID"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT credential_id, server_id, tool_name, username, description,
+                       enabled, created_at, updated_at, last_used
+                FROM tool_local_credentials
+                WHERE credential_id = ?
+            """, (credential_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Failed to get local credential by ID: {e}")
+            return None
 
     # ===========================================
     # Helper Methods

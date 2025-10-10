@@ -73,6 +73,7 @@ let currentServers = {};
 let discoveredTools = [];
 let currentCapabilities = {};
 let currentTab = 'servers';
+let availableOAuthProviders = [];  // Store available OAuth providers
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -502,9 +503,9 @@ async function discoverTools() {
     }
 }
 
-function displayTools(tools) {
+async function displayTools(tools) {
     const tableBody = document.getElementById('toolsTableBody');
-    
+
     if (tools.length === 0) {
         tableBody.innerHTML = `
             <div class="empty-state">
@@ -516,13 +517,26 @@ function displayTools(tools) {
         return;
     }
 
+    // Load OAuth providers if not already loaded
+    if (availableOAuthProviders.length === 0) {
+        await loadOAuthProviders();
+    }
+
     let html = '';
     tools.forEach(tool => {
         const paramCount = getParameterCount(tool.inputSchema);
+        const serverId = tool._server_id || '';
+        const toolName = tool.name || '';
+        const oauthProviders = tool._oauth_providers || [];
+
+        // Create multi-select dropdown for OAuth providers
+        const selectedProviderIds = oauthProviders.map(p => p.provider_id);
+        const oauthDropdownId = `oauth-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
         html += `
-            <div class="server-row">
+            <div class="server-row" data-server-id="${serverId}" data-tool-name="${toolName}">
                 <div class="col-name">
-                    <div class="server-name">${tool.name}</div>
+                    <div class="server-name">${toolName}</div>
                     <div class="server-id">${tool._server_url || 'Unknown Server'}</div>
                 </div>
                 <div class="col-endpoint">
@@ -533,12 +547,37 @@ function displayTools(tools) {
                 <div class="col-capabilities">
                     <span class="capabilities-count">${paramCount}</span>
                 </div>
+                <div class="col-version">
+                    ${availableOAuthProviders.length > 0 ? `
+                        <select
+                            id="${oauthDropdownId}"
+                            class="oauth-provider-select"
+                            multiple
+                            style="width: 100%; min-height: 35px; max-height: 70px; padding: 4px; font-size: 0.85rem;"
+                            onchange="updateToolOAuthProviders('${serverId}', '${toolName.replace(/'/g, '\\\'')}')"
+                            data-server-id="${serverId}"
+                            data-tool-name="${toolName}">
+                            ${availableOAuthProviders.map(provider => `
+                                <option value="${provider.provider_id}" ${selectedProviderIds.includes(provider.provider_id) ? 'selected' : ''}>
+                                    ${provider.provider_name}
+                                </option>
+                            `).join('')}
+                        </select>
+                    ` : `
+                        <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">
+                            No OAuth providers configured
+                        </div>
+                    `}
+                </div>
                 <div class="col-actions">
                     <div class="action-buttons">
-                        <button class="action-btn" onclick="selectToolForTesting('${tool.name}')" title="Test Tool">
+                        <button class="action-btn" onclick="manageToolCredentials('${serverId}', '${toolName.replace(/'/g, '\\\'')}')" title="Manage Credentials">
+                            <i class="fas fa-key"></i>
+                        </button>
+                        <button class="action-btn" onclick="selectToolForTesting('${toolName}')" title="Test Tool">
                             <i class="fas fa-play"></i>
                         </button>
-                        <button class="action-btn" onclick="viewToolDetails('${tool.name}')" title="View Details">
+                        <button class="action-btn" onclick="viewToolDetails('${toolName}')" title="View Details">
                             <i class="fas fa-info-circle"></i>
                         </button>
                     </div>
@@ -1141,16 +1180,71 @@ function filterServers() {
 
 function filterTools() {
     const searchTerm = document.getElementById('toolSearch').value.toLowerCase();
-    
+
     const toolRows = document.querySelectorAll('#toolsTableBody .server-row');
-    
+
     toolRows.forEach(row => {
         const name = row.querySelector('.server-name')?.textContent.toLowerCase() || '';
         const description = row.querySelector('.col-endpoint')?.textContent.toLowerCase() || '';
-        
+
         const matches = searchTerm === '' || name.includes(searchTerm) || description.includes(searchTerm);
         row.style.display = matches ? 'flex' : 'none';
     });
+}
+
+// ===== OAuth Provider Management for Tools =====
+
+async function loadOAuthProviders() {
+    console.log('🔐 Loading OAuth providers from /auth/providers...');
+    try {
+        const response = await fetch('/auth/providers');
+        console.log('🔐 OAuth providers response status:', response.status);
+        const data = await response.json();
+        console.log('🔐 OAuth providers response data:', data);
+
+        if (data.providers) {
+            availableOAuthProviders = data.providers.filter(p => p.enabled);
+            console.log('🔐 Filtered enabled OAuth providers:', availableOAuthProviders);
+            console.log('🔐 Total OAuth providers loaded:', availableOAuthProviders.length);
+        } else {
+            console.warn('🔐 No providers array in response:', data);
+            availableOAuthProviders = [];
+        }
+    } catch (error) {
+        console.error('🔐 Failed to load OAuth providers:', error);
+        availableOAuthProviders = [];
+    }
+}
+
+async function updateToolOAuthProviders(serverId, toolName) {
+    const selectElement = document.querySelector(`select[data-server-id="${serverId}"][data-tool-name="${toolName}"]`);
+    if (!selectElement) return;
+
+    const selectedOptions = Array.from(selectElement.selectedOptions);
+    const selectedProviderIds = selectedOptions.map(option => option.value);
+
+    try {
+        const response = await fetch(`/admin/tools/${encodeURIComponent(serverId)}/${encodeURIComponent(toolName)}/oauth-providers`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                oauth_provider_ids: selectedProviderIds
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert(`OAuth providers updated for tool: ${toolName}`, 'success');
+        } else {
+            showAlert(`Failed to update OAuth providers: ${result.message || 'Unknown error'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Failed to update tool OAuth providers:', error);
+        showAlert('Failed to update OAuth providers: ' + error.message, 'error');
+    }
 }
 // ===== Configuration Management Functions =====
 
@@ -1395,4 +1489,173 @@ async function loadServerHealth() {
 }
 
 // Configuration loading is now handled in switchTab() function
+
+// ===== Tool Credentials Management =====
+
+// Store current tool context for credentials modal
+let currentCredentialContext = { serverId: '', toolName: '' };
+
+async function manageToolCredentials(serverId, toolName) {
+    console.log('Managing credentials for:', { serverId, toolName });
+
+    // Store context
+    currentCredentialContext = { serverId, toolName };
+
+    // Load existing credentials
+    await loadToolCredentials(serverId, toolName);
+
+    // Show modal
+    showModal('toolCredentialsModal');
+}
+
+async function loadToolCredentials(serverId, toolName) {
+    try {
+        const response = await fetch(`/admin/tools/${encodeURIComponent(serverId)}/${encodeURIComponent(toolName)}/credentials`);
+        const data = await response.json();
+
+        // Update modal title
+        document.getElementById('credentialsModalTitle').textContent = `Manage Credentials: ${toolName}`;
+
+        // Display credentials list
+        displayToolCredentials(data.credentials || []);
+    } catch (error) {
+        console.error('Failed to load tool credentials:', error);
+        showAlert('Failed to load credentials: ' + error.message, 'error');
+    }
+}
+
+function displayToolCredentials(credentials) {
+    const container = document.getElementById('credentialsListContainer');
+
+    if (credentials.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state" style="padding: 20px; text-align: center;">
+                <i class="fas fa-key" style="font-size: 48px; color: #ccc;"></i>
+                <p style="margin-top: 15px; color: #999;">No credentials configured for this tool</p>
+                <p style="font-size: 0.9em; color: #999;">Click "Add Credential" to create one</p>
+            </div>
+        `;
+        return;
+    }
+
+    const html = `
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Description</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${credentials.map(cred => `
+                    <tr>
+                        <td><strong>${cred.username}</strong></td>
+                        <td>${cred.description || '-'}</td>
+                        <td>${new Date(cred.created_at).toLocaleDateString()}</td>
+                        <td>
+                            <button class="btn btn-sm btn-danger" onclick="deleteToolCredential('${cred.credential_id}')">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+
+    container.innerHTML = html;
+}
+
+function showAddCredentialForm() {
+    // Hide credentials list, show form
+    document.getElementById('credentialsListContainer').style.display = 'none';
+    document.getElementById('addCredentialFormContainer').style.display = 'block';
+    document.getElementById('btnShowAddForm').style.display = 'none';
+    document.getElementById('btnCancelAdd').style.display = 'inline-block';
+    document.getElementById('btnSaveCredential').style.display = 'inline-block';
+}
+
+function hideAddCredentialForm() {
+    // Show credentials list, hide form
+    document.getElementById('credentialsListContainer').style.display = 'block';
+    document.getElementById('addCredentialFormContainer').style.display = 'none';
+    document.getElementById('btnShowAddForm').style.display = 'inline-block';
+    document.getElementById('btnCancelAdd').style.display = 'none';
+    document.getElementById('btnSaveCredential').style.display = 'none';
+
+    // Clear form
+    document.getElementById('credUsername').value = '';
+    document.getElementById('credPassword').value = '';
+    document.getElementById('credDescription').value = '';
+}
+
+async function saveToolCredential() {
+    const username = document.getElementById('credUsername').value.trim();
+    const password = document.getElementById('credPassword').value;
+    const description = document.getElementById('credDescription').value.trim();
+
+    if (!username || !password) {
+        showAlert('Username and password are required', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(
+            `/admin/tools/${encodeURIComponent(currentCredentialContext.serverId)}/${encodeURIComponent(currentCredentialContext.toolName)}/credentials`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    username: username,
+                    password: password,
+                    description: description
+                })
+            }
+        );
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert('Credential added successfully', 'success');
+            hideAddCredentialForm();
+            // Reload credentials list
+            await loadToolCredentials(currentCredentialContext.serverId, currentCredentialContext.toolName);
+        } else {
+            showAlert('Failed to add credential: ' + (result.message || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        console.error('Failed to save credential:', error);
+        showAlert('Failed to save credential: ' + error.message, 'error');
+    }
+}
+
+async function deleteToolCredential(credentialId) {
+    if (!confirm('Are you sure you want to delete this credential?')) return;
+
+    try {
+        const response = await fetch(
+            `/admin/tools/credentials/${credentialId}`,
+            {
+                method: 'DELETE'
+            }
+        );
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert('Credential deleted successfully', 'success');
+            // Reload credentials list
+            await loadToolCredentials(currentCredentialContext.serverId, currentCredentialContext.toolName);
+        } else {
+            showAlert('Failed to delete credential: ' + (result.message || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        console.error('Failed to delete credential:', error);
+        showAlert('Failed to delete credential: ' + error.message, 'error');
+    }
+}
 
