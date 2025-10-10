@@ -15,11 +15,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (token) {
         authToken = token;
-        localStorage.setItem('mcp_auth_token', token);
+        localStorage.setItem('access_token', token); // Use same key as auth.js
         // Clean URL
         window.history.replaceState({}, document.title, window.location.pathname);
     } else {
-        authToken = localStorage.getItem('mcp_auth_token');
+        // Check both old and new token keys for backward compatibility
+        authToken = localStorage.getItem('access_token') || localStorage.getItem('mcp_auth_token');
+        if (authToken) {
+            // Migrate to new key if using old one
+            localStorage.setItem('access_token', authToken);
+            localStorage.removeItem('mcp_auth_token');
+        }
     }
 
     if (authToken) {
@@ -27,6 +33,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     setupEventListeners();
+
+    // Listen for login events from auth.js
+    window.addEventListener('storage', (e) => {
+        if (e.key === 'access_token') {
+            if (e.newValue) {
+                authToken = e.newValue;
+                loadCurrentUser();
+            } else {
+                authToken = null;
+                currentUser = null;
+            }
+        }
+    });
+
+    // Also check if auth module has authenticated user
+    setInterval(() => {
+        if (window.authModule && window.authModule.isAuthenticated() && !authToken) {
+            authToken = window.authModule.getAccessToken();
+            if (authToken) {
+                loadCurrentUser();
+            }
+        }
+    }, 500); // Check every 500ms
 });
 
 // Setup event listeners
@@ -73,7 +102,7 @@ async function loadCurrentUser() {
             updateUserInterface();
         } else {
             // Token invalid, clear and redirect to login
-            localStorage.removeItem('mcp_auth_token');
+            localStorage.removeItem('access_token');
             authToken = null;
             showLoginInterface();
         }
@@ -121,10 +150,11 @@ async function initiateOAuthLogin(providerId) {
 }
 
 function logout() {
-    localStorage.removeItem('mcp_auth_token');
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('mcp_auth_token'); // Clean up old key too
     authToken = null;
     currentUser = null;
-    window.location.href = '/auth/welcome';
+    window.location.reload(); // Reload to show login modal
 }
 
 // OAuth Provider Management
@@ -161,6 +191,11 @@ const PROVIDER_TEMPLATES = {
 let currentScopes = ['openid', 'email', 'profile'];
 
 async function loadOAuthProviders() {
+    // Sync token from auth module if needed
+    if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
+        authToken = window.authModule.getAccessToken();
+    }
+
     try {
         const response = await fetch('/auth/providers');
         const data = await response.json();
@@ -174,6 +209,11 @@ async function loadOAuthProviders() {
 function displayOAuthProviders(providers) {
     const container = document.getElementById('oauthProvidersContainer');
     if (!container) return;
+
+    // Sync token from auth module if needed
+    if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
+        authToken = window.authModule.getAccessToken();
+    }
 
     // Always show management interface in the OAuth Providers tab
     // (This is the OAuth management section, not the login page)
@@ -453,6 +493,11 @@ async function removeOAuthProvider(providerId) {
 async function loadUsers() {
     const container = document.getElementById('usersContainer');
 
+    // Sync token from auth module if needed
+    if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
+        authToken = window.authModule.getAccessToken();
+    }
+
     // Check if user is authenticated
     if (!authToken) {
         container.innerHTML = `
@@ -492,7 +537,7 @@ async function loadUsers() {
                 </div>
             `;
             // Clear invalid token
-            localStorage.removeItem('mcp_auth_token');
+            localStorage.removeItem('access_token');
             authToken = null;
         } else {
             container.innerHTML = `
@@ -616,6 +661,11 @@ async function assignRole(userId, roleId) {
 async function loadRoles() {
     const container = document.getElementById('rolesContainer');
 
+    // Sync token from auth module if needed
+    if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
+        authToken = window.authModule.getAccessToken();
+    }
+
     // Check if user is authenticated
     if (!authToken) {
         container.innerHTML = `
@@ -654,7 +704,7 @@ async function loadRoles() {
                     <p>Your session has expired. Please sign in again.</p>
                 </div>
             `;
-            localStorage.removeItem('mcp_auth_token');
+            localStorage.removeItem('access_token');
             authToken = null;
         } else {
             container.innerHTML = `
@@ -1293,6 +1343,11 @@ async function saveADConfig() {
 
 // Load AD Configuration from database
 async function loadADConfig() {
+    // Sync token from auth module if needed
+    if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
+        authToken = window.authModule.getAccessToken();
+    }
+
     try {
         const headers = {};
 
@@ -1503,7 +1558,7 @@ async function queryADGroups() {
     const adServer = document.getElementById('adServer').value.trim();
     const adPort = document.getElementById('adPort').value;
     const bindDN = document.getElementById('adBindDN').value.trim();
-    const bindPassword = document.getElementById('adBindPassword').value;
+    const bindPassword = document.getElementById('adPassword').value;
     const baseDN = document.getElementById('adBaseDN').value.trim();
     const groupFilter = document.getElementById('adGroupFilter').value.trim();
 
@@ -1653,6 +1708,12 @@ async function saveGroupMapping() {
         return;
     }
 
+    // Check if we have AD config to sync users
+    if (!adConfigData.server || !adConfigData.bind_dn || !adConfigData.bind_password) {
+        showNotification('AD configuration incomplete. Please configure AD connection first.', 'error');
+        return;
+    }
+
     try {
         const response = await fetch('/admin/ad/group-mappings', {
             method: 'POST',
@@ -1663,7 +1724,14 @@ async function saveGroupMapping() {
             body: JSON.stringify({
                 group_dn: groupDN,
                 role_id: roleId,
-                auto_sync: autoSync
+                auto_sync: autoSync,
+                ad_config: {
+                    server: adConfigData.server,
+                    port: adConfigData.port,
+                    bind_dn: adConfigData.bind_dn,
+                    bind_password: adConfigData.bind_password,
+                    use_ssl: adConfigData.use_ssl || false
+                }
             })
         });
 
@@ -1672,6 +1740,7 @@ async function saveGroupMapping() {
             showNotification(`Group mapping saved! Synced ${data.synced_users} users.`, 'success');
             closeModal('groupMappingModal');
             loadUsers(); // Refresh users list
+            loadADMappings(); // Refresh AD mappings
         } else {
             const error = await response.json();
             showNotification('Failed to save mapping: ' + (error.detail || 'Unknown error'), 'error');

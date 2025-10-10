@@ -16,9 +16,22 @@
         <div class="title-container">
             <h1>MCP Server Management Portal</h1>
         </div>
-        <div class="nav-buttons">
-            <a href="/auth/welcome">Home</a>
-            <a href="/auth/logout" class="logout-btn">Logout</a>
+        <div class="nav-buttons" id="headerButtons">
+            <button class="btn btn-primary btn-sm" onclick="showLoginModal()" id="loginButton">
+                <i class="fas fa-sign-in-alt"></i> Sign In
+            </button>
+            <div id="userProfileButton" style="display: none; cursor: pointer;" onclick="toggleUserProfile()">
+                <div style="display: flex; align-items: center; padding: 8px 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white;">
+                    <div style="width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.2); display: flex; align-items: center; justify-content: center; font-weight: 600; margin-right: 10px;">
+                        <span id="headerUserInitials"></span>
+                    </div>
+                    <div style="text-align: left;">
+                        <div id="headerUserName" style="font-weight: 600; font-size: 0.9em;"></div>
+                        <div id="headerUserRole" style="font-size: 0.75em; opacity: 0.9;"></div>
+                    </div>
+                    <i class="fas fa-chevron-down" style="margin-left: 12px; font-size: 0.8em;"></i>
+                </div>
+            </div>
         </div>
     </header>
 
@@ -959,7 +972,7 @@
                     <div class="form-group">
                         <label class="form-label">Group Search Filter</label>
                         <input type="text" class="form-control" id="adGroupFilter" value="(objectClass=group)" placeholder="(objectClass=group)">
-                        <small class="form-text">LDAP filter for groups</small>
+                        <small class="form-text">Use (objectClass=group) to get all groups, or (&(objectClass=group)(cn=GroupName)) for a specific group</small>
                     </div>
 
                     <div class="form-group">
@@ -1020,8 +1033,126 @@
         </div>
     </div>
 
+    <!-- Login Modal -->
+    <div id="loginModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Sign In to MCP Portal
+                </div>
+            </div>
+            <div class="modal-body">
+                <!-- Local Authentication -->
+                <div class="auth-section">
+                    <h4 class="auth-section-title">
+                        <i class="fas fa-user-lock"></i>
+                        Local Authentication
+                    </h4>
+                    <form id="localLoginForm" onsubmit="return handleLocalLogin(event);">
+                        <div class="form-group">
+                            <label class="form-label">Email / Username</label>
+                            <input type="text" class="form-control" id="localEmail" placeholder="admin" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Password</label>
+                            <input type="password" class="form-control" id="localPassword" placeholder="Enter password" required>
+                        </div>
+                        <div id="localLoginError" class="alert alert-danger" style="display: none;"></div>
+                        <button type="submit" class="btn btn-primary btn-block">
+                            <i class="fas fa-sign-in-alt"></i>
+                            Sign In
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Divider -->
+                <div class="auth-divider">
+                    <span>OR</span>
+                </div>
+
+                <!-- OAuth Providers -->
+                <div class="auth-section">
+                    <h4 class="auth-section-title">
+                        <i class="fas fa-shield-alt"></i>
+                        Sign in with OAuth
+                    </h4>
+                    <div id="oauthProviderButtons" class="oauth-providers-list">
+                        <p class="text-muted" id="noOAuthProvidersMessage">
+                            <i class="fas fa-info-circle"></i>
+                            No OAuth providers configured yet.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Default Credentials Help -->
+                <div class="alert alert-info" style="margin-top: 20px;">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>First Time Setup:</strong>
+                    <p style="margin: 10px 0 0 0;">Default credentials are <strong>admin</strong> / <strong>admin</strong></p>
+                    <p style="margin: 5px 0 0 0; font-size: 0.9em;">⚠️ Please change the password after first login</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Profile Dropdown (Hidden until logged in) -->
+    <div id="userProfileDropdown" style="display: none; position: fixed; top: 60px; right: 20px; background: white; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); padding: 15px; min-width: 250px; z-index: 1001;">
+        <div style="display: flex; align-items: center; margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee;">
+            <div style="width: 40px; height: 40px; border-radius: 50%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; color: white; font-weight: 600; margin-right: 12px;">
+                <span id="userInitials"></span>
+            </div>
+            <div style="flex: 1;">
+                <div id="userDisplayName" style="font-weight: 600; color: #333;"></div>
+                <div id="userDisplayEmail" style="font-size: 0.85em; color: #666;"></div>
+            </div>
+        </div>
+        <div id="userRolesList" style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #eee;"></div>
+        <button class="btn btn-outline btn-sm btn-block" onclick="changePassword()" style="margin-bottom: 8px;">
+            <i class="fas fa-key"></i> Change Password
+        </button>
+        <button class="btn btn-danger btn-sm btn-block" onclick="handleLogout()">
+            <i class="fas fa-sign-out-alt"></i> Logout
+        </button>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div id="changePasswordModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-key"></i>
+                    Change Password
+                </div>
+                <button class="modal-close" onclick="closeModal('changePasswordModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="changePasswordForm" onsubmit="return submitPasswordChange(event);">
+                    <div class="form-group">
+                        <label class="form-label">New Password *</label>
+                        <input type="password" class="form-control" id="newPassword" placeholder="Enter new password" required minlength="8">
+                        <small class="form-text">Minimum 8 characters</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Confirm Password *</label>
+                        <input type="password" class="form-control" id="confirmPassword" placeholder="Confirm new password" required>
+                    </div>
+                    <div id="passwordChangeError" class="alert alert-danger" style="display: none;"></div>
+                    <div id="passwordChangeSuccess" class="alert alert-success" style="display: none;"></div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('changePasswordModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitPasswordChange(event)">
+                    <i class="fas fa-save"></i> Update Password
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="static/js/mcp-portal.js"></script>
     <script src="static/js/admin-security.js"></script>
     <script src="static/js/admin-ad-fetched.js"></script>
+    <script src="static/js/auth.js"></script>
 </body>
 </html>

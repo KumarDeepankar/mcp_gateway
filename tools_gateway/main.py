@@ -537,6 +537,61 @@ async def list_oauth_providers():
     return JSONResponse(content={"providers": providers})
 
 
+@app.post("/auth/login/local")
+async def local_login(request: Request, request_data: Dict[str, Any]):
+    """Local authentication with email and password"""
+    email = request_data.get("email")
+    password = request_data.get("password")
+
+    if not email or not password:
+        raise HTTPException(status_code=400, detail="Email and password required")
+
+    # Authenticate user
+    user = rbac_manager.authenticate_local_user(email, password)
+
+    if not user:
+        audit_logger.log_event(
+            AuditEventType.AUTH_LOGIN_FAILURE,
+            severity=AuditSeverity.WARNING,
+            user_email=email,
+            ip_address=request.client.host if request.client else None,
+            details={"provider": "local", "reason": "invalid_credentials"},
+            success=False
+        )
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    # Create UserInfo for JWT
+    from auth import UserInfo
+    user_info = UserInfo(
+        sub=user.user_id,
+        email=user.email,
+        name=user.name,
+        provider="local",
+        raw_data={}
+    )
+
+    # Create JWT access token
+    access_token = jwt_manager.create_access_token(user_info)
+
+    audit_logger.log_event(
+        AuditEventType.AUTH_LOGIN_SUCCESS,
+        user_id=user.user_id,
+        user_email=user.email,
+        ip_address=request.client.host if request.client else None,
+        details={"provider": "local"}
+    )
+
+    return JSONResponse(content={
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "email": user.email,
+            "name": user.name,
+            "roles": [rbac_manager.get_role(rid).role_name for rid in user.roles if rbac_manager.get_role(rid)]
+        }
+    })
+
+
 @app.post("/auth/login")
 async def oauth_login(request: Request, provider_id: str):
     """Initiate OAuth login flow"""
@@ -720,10 +775,39 @@ async def remove_oauth_provider(request: Request, provider_id: str):
 @app.get("/admin/users")
 async def list_users(request: Request):
     """List all users (Admin only)"""
-    user = get_current_user(request)
-    if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_VIEW):
+    # Since AuthenticationMiddleware is disabled, manually validate JWT token
+    auth_header = request.headers.get("Authorization")
+    logger.info(f"🔍 /admin/users endpoint - Authorization header present: {auth_header is not None}")
+
+    if not auth_header or not auth_header.startswith("Bearer "):
+        logger.warning("❌ No valid Authorization header")
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    payload = jwt_manager.verify_token(token)
+
+    if not payload:
+        logger.warning("❌ Invalid or expired token")
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    logger.info(f"🔍 Token payload: {payload}")
+
+    # Get user from RBAC system
+    user = rbac_manager.get_user_by_email(payload.get("email"))
+    logger.info(f"🔍 User retrieved from email '{payload.get('email')}': {user is not None}")
+
+    if not user or not user.enabled:
+        logger.warning(f"❌ User not found or disabled: email={payload.get('email')}")
+        raise HTTPException(status_code=403, detail="User not found or disabled")
+
+    logger.info(f"🔍 User details: user_id={user.user_id}, email={user.email}, roles={user.roles}")
+
+    # Check permission
+    if not rbac_manager.has_permission(user.user_id, Permission.USER_VIEW):
+        logger.warning(f"❌ Permission check failed for user: {user.user_id}")
         raise HTTPException(status_code=403, detail="Permission denied")
 
+    logger.info(f"✅ Permission check passed for user: {user.user_id}")
     users = rbac_manager.list_users()
     return JSONResponse(content={"users": users})
 
@@ -845,12 +929,170 @@ async def delete_role(request: Request, role_id: str):
     return JSONResponse(content={"success": success})
 
 
-@app.post("/admin/users")
-async def create_user(request: Request, request_data: Dict[str, Any]):
-    """Create local user manually (Admin only)"""
+# =====================================================================
+# ROLE-TOOL PERMISSIONS MANAGEMENT ENDPOINTS
+# =====================================================================
+
+@app.get("/admin/roles/{role_id}/tools")
+async def get_role_tool_permissions(request: Request, role_id: str):
+    """Get tool permissions for a role (Admin only)"""
     user = get_current_user(request)
-    if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_MANAGE):
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_VIEW):
         raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Check if role exists
+    role = rbac_manager.get_role(role_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    # Get tool permissions from database
+    from database import database
+    tool_permissions = database.get_role_tool_permissions(role_id)
+
+    # Group by server for better organization
+    permissions_by_server = {}
+    for perm in tool_permissions:
+        server_id = perm['server_id']
+        if server_id not in permissions_by_server:
+            permissions_by_server[server_id] = []
+        permissions_by_server[server_id].append(perm['tool_name'])
+
+    return JSONResponse(content={
+        "role_id": role_id,
+        "role_name": role.role_name,
+        "permissions_by_server": permissions_by_server,
+        "all_permissions": tool_permissions
+    })
+
+
+@app.post("/admin/roles/{role_id}/tools")
+async def set_role_tool_permissions(request: Request, role_id: str, request_data: Dict[str, Any]):
+    """Set tool permissions for a role on a specific server (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Check if role exists
+    role = rbac_manager.get_role(role_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    # Check if role is a system role (admin users should have unrestricted access)
+    if role.is_system:
+        raise HTTPException(status_code=400, detail="Cannot modify tool permissions for system roles")
+
+    server_id = request_data.get("server_id")
+    tool_names = request_data.get("tool_names", [])
+
+    if not server_id:
+        raise HTTPException(status_code=400, detail="server_id is required")
+
+    # Set tool permissions for this server
+    from database import database
+    success = database.set_role_tools_for_server(role_id, server_id, tool_names)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.CONFIG_UPDATED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="role",
+            resource_id=role_id,
+            details={
+                "action": "set_tool_permissions",
+                "server_id": server_id,
+                "tool_count": len(tool_names)
+            }
+        )
+
+    return JSONResponse(content={
+        "success": success,
+        "message": f"Set {len(tool_names)} tool permissions for role {role.role_name} on server {server_id}"
+    })
+
+
+@app.delete("/admin/roles/{role_id}/tools")
+async def clear_role_tool_permissions(request: Request, role_id: str):
+    """Clear all tool permissions for a role (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Check if role exists
+    role = rbac_manager.get_role(role_id)
+    if not role:
+        raise HTTPException(status_code=404, detail="Role not found")
+
+    if role.is_system:
+        raise HTTPException(status_code=400, detail="Cannot modify tool permissions for system roles")
+
+    # Clear all tool permissions
+    from database import database
+    success = database.clear_role_tool_permissions(role_id)
+
+    if success:
+        audit_logger.log_event(
+            AuditEventType.CONFIG_UPDATED,
+            user_id=user.user_id,
+            user_email=user.email,
+            resource_type="role",
+            resource_id=role_id,
+            details={"action": "clear_tool_permissions"}
+        )
+
+    return JSONResponse(content={
+        "success": success,
+        "message": f"Cleared all tool permissions for role {role.role_name}"
+    })
+
+
+@app.get("/admin/servers/tools")
+async def get_all_server_tools(request: Request):
+    """Get all discovered tools grouped by server (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.TOOL_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Get all registered servers
+    servers = await mcp_storage_manager.get_all_servers()
+
+    # Get all tools from discovery service
+    all_tools = await discovery_service.get_all_tools()
+
+    # Group tools by server
+    tools_by_server = {}
+    for server_id, server_info in servers.items():
+        server_tools = [
+            tool for tool in all_tools
+            if discovery_service.tool_to_server_map.get(tool['name']) == server_info.url
+        ]
+
+        tools_by_server[server_id] = {
+            "server_name": server_info.name,
+            "server_url": server_info.url,
+            "tools": server_tools
+        }
+
+    return JSONResponse(content={"tools_by_server": tools_by_server})
+
+
+@app.post("/admin/users")
+
+async def create_user(request: Request, request_data: Dict[str, Any]):
+    """Create local user manually (Admin only or first-time setup)"""
+    # Check if this is first-time setup (no users exist)
+    all_users = rbac_manager.list_users()
+    is_first_user = len(all_users) == 0
+
+    if not is_first_user:
+        # Not first-time setup - require authentication and permission
+        user = get_current_user(request)
+        if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_MANAGE):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    else:
+        # First-time setup - allow unauthenticated user creation
+        user = None
+        logger.info("First-time user creation - allowing unauthenticated access")
 
     email = request_data.get("email")
     name = request_data.get("name", "")
@@ -858,33 +1100,87 @@ async def create_user(request: Request, request_data: Dict[str, Any]):
     roles = request_data.get("roles", [])
     provider = request_data.get("provider", "local")
 
-    if not email or not password:
-        raise HTTPException(status_code=400, detail="Email and password are required")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
 
-    # Create user
-    new_user = rbac_manager.get_or_create_user(
-        email=email,
-        name=name,
-        provider=provider
-    )
+    # Create local user or OAuth user
+    if provider == "local":
+        if not password:
+            raise HTTPException(status_code=400, detail="Password is required for local users")
 
-    # Assign roles
-    for role_id in roles:
-        rbac_manager.assign_role(new_user.user_id, role_id)
+        # Create local user with password
+        try:
+            new_user = rbac_manager.create_local_user(
+                email=email,
+                password=password,
+                name=name,
+                roles=set(roles) if roles else {"user"}
+            )
+        except Exception as e:
+            logger.error(f"Error creating local user: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to create user: {str(e)}")
+    else:
+        # Create OAuth user
+        new_user = rbac_manager.get_or_create_user(
+            email=email,
+            name=name,
+            provider=provider
+        )
+
+        # Assign roles
+        for role_id in roles:
+            rbac_manager.assign_role(new_user.user_id, role_id)
 
     audit_logger.log_event(
         AuditEventType.USER_CREATED,
-        user_id=user.user_id,
-        user_email=user.email,
+        user_id=user.user_id if user else None,
+        user_email=user.email if user else "system",
         resource_type="user",
         resource_id=new_user.user_id,
-        details={"email": email, "roles": roles}
+        details={"email": email, "provider": provider, "roles": roles, "first_time_setup": is_first_user}
     )
 
     return JSONResponse(content={
         "success": True,
-        "user_id": new_user.user_id
+        "user_id": new_user.user_id,
+        "message": "User created successfully. You can now sign in." if is_first_user else "User created successfully."
     })
+
+
+@app.post("/admin/users/{user_id}/password")
+async def update_user_password(request: Request, user_id: str, request_data: Dict[str, Any]):
+    """Update user password (Admin or own password)"""
+    current_user = get_current_user(request)
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Check permission: either admin or updating own password
+    is_admin = rbac_manager.has_permission(current_user.user_id, Permission.USER_MANAGE)
+    is_own_password = current_user.user_id == user_id
+
+    if not is_admin and not is_own_password:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    new_password = request_data.get("new_password")
+    if not new_password:
+        raise HTTPException(status_code=400, detail="new_password is required")
+
+    # Update password
+    success = rbac_manager.update_user_password(user_id, new_password)
+
+    if not success:
+        raise HTTPException(status_code=400, detail="Failed to update password")
+
+    audit_logger.log_event(
+        AuditEventType.USER_PASSWORD_CHANGED,
+        user_id=current_user.user_id,
+        user_email=current_user.email,
+        resource_type="user",
+        resource_id=user_id,
+        details={"changed_by": "self" if is_own_password else "admin"}
+    )
+
+    return JSONResponse(content={"success": True, "message": "Password updated successfully"})
 
 
 # =====================================================================

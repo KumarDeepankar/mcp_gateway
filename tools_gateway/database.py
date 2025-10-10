@@ -23,7 +23,7 @@ class Database:
     """
 
     # Database schema version
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     # SQL schema definitions
     SCHEMA = """
@@ -77,6 +77,7 @@ class Database:
         email TEXT NOT NULL UNIQUE,
         name TEXT,
         provider TEXT,
+        password_hash TEXT,  -- For local authentication
         enabled BOOLEAN DEFAULT 1,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         last_login DATETIME
@@ -100,6 +101,17 @@ class Database:
         granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (user_id, server_id),
         FOREIGN KEY (user_id) REFERENCES rbac_users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (server_id) REFERENCES mcp_servers(server_id) ON DELETE CASCADE
+    );
+
+    -- Role Tool Permissions (Many-to-Many for role-based tool access)
+    CREATE TABLE IF NOT EXISTS role_tool_permissions (
+        role_id TEXT NOT NULL,
+        server_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        granted_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (role_id, server_id, tool_name),
+        FOREIGN KEY (role_id) REFERENCES rbac_roles(role_id) ON DELETE CASCADE,
         FOREIGN KEY (server_id) REFERENCES mcp_servers(server_id) ON DELETE CASCADE
     );
 
@@ -151,6 +163,8 @@ class Database:
     CREATE INDEX IF NOT EXISTS idx_audit_user_id ON audit_logs(user_id);
     CREATE INDEX IF NOT EXISTS idx_audit_user_email ON audit_logs(user_email);
     CREATE INDEX IF NOT EXISTS idx_audit_severity ON audit_logs(severity);
+    CREATE INDEX IF NOT EXISTS idx_role_tool_role ON role_tool_permissions(role_id);
+    CREATE INDEX IF NOT EXISTS idx_role_tool_server ON role_tool_permissions(server_id);
     """
 
     def __init__(self, db_path: str = "tools_gateway.db"):
@@ -417,15 +431,16 @@ class Database:
             return False
 
     def save_user(self, user_id: str, email: str, name: Optional[str] = None,
-                  provider: Optional[str] = None, enabled: bool = True) -> bool:
+                  provider: Optional[str] = None, password_hash: Optional[str] = None,
+                  enabled: bool = True) -> bool:
         """Save or update user"""
         try:
             with self.transaction() as conn:
                 conn.execute("""
                     INSERT OR REPLACE INTO rbac_users
-                    (user_id, email, name, provider, enabled)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (user_id, email, name, provider, enabled))
+                    (user_id, email, name, provider, password_hash, enabled)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (user_id, email, name, provider, password_hash, enabled))
                 logger.info(f"Saved user: {user_id}")
                 return True
         except Exception as e:
@@ -519,6 +534,102 @@ class Database:
                 return True
         except Exception as e:
             logger.error(f"Failed to update last login for {user_id}: {e}")
+            return False
+
+    # ===========================================
+    # Role Tool Permissions Operations
+    # ===========================================
+
+    def grant_role_tool_permission(self, role_id: str, server_id: str, tool_name: str) -> bool:
+        """Grant permission for a role to access a specific tool"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("""
+                    INSERT OR IGNORE INTO role_tool_permissions (role_id, server_id, tool_name)
+                    VALUES (?, ?, ?)
+                """, (role_id, server_id, tool_name))
+                logger.info(f"Granted tool permission: role={role_id}, server={server_id}, tool={tool_name}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to grant tool permission: {e}")
+            return False
+
+    def revoke_role_tool_permission(self, role_id: str, server_id: str, tool_name: str) -> bool:
+        """Revoke permission for a role to access a specific tool"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("""
+                    DELETE FROM role_tool_permissions
+                    WHERE role_id = ? AND server_id = ? AND tool_name = ?
+                """, (role_id, server_id, tool_name))
+                logger.info(f"Revoked tool permission: role={role_id}, server={server_id}, tool={tool_name}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to revoke tool permission: {e}")
+            return False
+
+    def get_role_tool_permissions(self, role_id: str) -> List[Dict[str, Any]]:
+        """Get all tool permissions for a role"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT server_id, tool_name, granted_at
+                FROM role_tool_permissions
+                WHERE role_id = ?
+                ORDER BY server_id, tool_name
+            """, (role_id,))
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get role tool permissions for {role_id}: {e}")
+            return []
+
+    def get_role_tools_by_server(self, role_id: str, server_id: str) -> List[str]:
+        """Get all allowed tool names for a role on a specific server"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT tool_name
+                FROM role_tool_permissions
+                WHERE role_id = ? AND server_id = ?
+                ORDER BY tool_name
+            """, (role_id, server_id))
+            return [row['tool_name'] for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get role tools for server: {e}")
+            return []
+
+    def set_role_tools_for_server(self, role_id: str, server_id: str, tool_names: List[str]) -> bool:
+        """Set the complete list of allowed tools for a role on a server (replaces existing)"""
+        try:
+            with self.transaction() as conn:
+                # First, remove all existing permissions for this role and server
+                conn.execute("""
+                    DELETE FROM role_tool_permissions
+                    WHERE role_id = ? AND server_id = ?
+                """, (role_id, server_id))
+
+                # Then, add the new permissions
+                for tool_name in tool_names:
+                    conn.execute("""
+                        INSERT INTO role_tool_permissions (role_id, server_id, tool_name)
+                        VALUES (?, ?, ?)
+                    """, (role_id, server_id, tool_name))
+
+                logger.info(f"Set {len(tool_names)} tool permissions for role {role_id} on server {server_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to set role tools for server: {e}")
+            return False
+
+    def clear_role_tool_permissions(self, role_id: str) -> bool:
+        """Clear all tool permissions for a role"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("DELETE FROM role_tool_permissions WHERE role_id = ?", (role_id,))
+                logger.info(f"Cleared all tool permissions for role: {role_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to clear role tool permissions: {e}")
             return False
 
     # ===========================================

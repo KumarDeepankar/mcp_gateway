@@ -6,6 +6,7 @@ Uses SQLite database for storage
 """
 import logging
 import secrets
+import hashlib
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Set
 from enum import Enum
@@ -130,6 +131,7 @@ class RBACManager:
     def __init__(self):
         """Initialize RBAC manager with SQLite database backend"""
         self._initialize_default_roles()
+        self._initialize_default_admin()
         logger.info("RBACManager initialized with SQLite database backend")
 
     def _initialize_default_roles(self):
@@ -146,6 +148,24 @@ class RBACManager:
                     is_system=role.is_system
                 )
                 logger.info(f"Created default role: {role.role_name}")
+
+    def _initialize_default_admin(self):
+        """Create default admin user if no users exist"""
+        all_users = database.get_all_users()
+        if len(all_users) == 0:
+            # Create default admin user
+            admin_email = "admin"
+            admin_password = "admin"
+
+            logger.info("No users found - creating default admin user")
+            self.create_local_user(
+                email=admin_email,
+                password=admin_password,
+                name="Administrator",
+                roles={"admin"}
+            )
+            logger.warning("⚠️  Default admin user created with email 'admin' and password 'admin'")
+            logger.warning("⚠️  SECURITY: Change this password immediately after first login!")
 
     def _load_data(self):
         """No-op: Data is loaded from database on demand"""
@@ -273,6 +293,120 @@ class RBACManager:
         return result
 
     # --- User Management ---
+
+    def _hash_password(self, password: str) -> str:
+        """Hash password using SHA-256"""
+        return hashlib.sha256(password.encode()).hexdigest()
+
+    def _verify_password(self, password: str, password_hash: str) -> bool:
+        """Verify password against hash"""
+        return self._hash_password(password) == password_hash
+
+    def create_local_user(self, email: str, password: str, name: Optional[str] = None,
+                         roles: Optional[Set[str]] = None) -> User:
+        """Create a new local user with password"""
+        user_id = f"user_{secrets.token_urlsafe(12)}"
+
+        # Default to 'user' role if none specified
+        if roles is None:
+            roles = {"user"}
+
+        # Hash password
+        password_hash = self._hash_password(password)
+
+        # Save user to database
+        database.save_user(
+            user_id=user_id,
+            email=email,
+            name=name,
+            provider="local",
+            password_hash=password_hash,
+            enabled=True
+        )
+
+        # Assign roles
+        for role_id in roles:
+            database.assign_role_to_user(user_id, role_id)
+
+        logger.info(f"Created local user: {email} ({user_id})")
+
+        # Return user object
+        user = User(
+            user_id=user_id,
+            email=email,
+            name=name,
+            provider="local",
+            roles=roles
+        )
+        return user
+
+    def authenticate_local_user(self, email: str, password: str) -> Optional[User]:
+        """Authenticate local user with email and password"""
+        user_data = database.get_user_by_email(email)
+
+        if not user_data:
+            logger.warning(f"Authentication failed: User not found - {email}")
+            return None
+
+        # Check if local provider
+        if user_data.get('provider') != 'local':
+            logger.warning(f"Authentication failed: Not a local user - {email}")
+            return None
+
+        # Check if user is enabled
+        if not user_data.get('enabled', True):
+            logger.warning(f"Authentication failed: User disabled - {email}")
+            return None
+
+        # Verify password
+        password_hash = user_data.get('password_hash')
+        if not password_hash or not self._verify_password(password, password_hash):
+            logger.warning(f"Authentication failed: Invalid password - {email}")
+            return None
+
+        # Update last login
+        database.update_user_last_login(user_data['user_id'])
+
+        logger.info(f"Local user authenticated successfully: {email}")
+
+        # Return user object
+        return User(
+            user_id=user_data['user_id'],
+            email=user_data['email'],
+            name=user_data.get('name'),
+            provider=user_data.get('provider'),
+            roles=set(user_data.get('roles', [])),
+            enabled=user_data.get('enabled', True),
+            created_at=datetime.fromisoformat(user_data['created_at']) if user_data.get('created_at') else datetime.now(),
+            last_login=datetime.now()
+        )
+
+    def update_user_password(self, user_id: str, new_password: str) -> bool:
+        """Update user password"""
+        user_data = database.get_user(user_id)
+        if not user_data:
+            logger.error(f"User {user_id} not found")
+            return False
+
+        if user_data.get('provider') != 'local':
+            logger.error(f"Cannot update password for non-local user: {user_id}")
+            return False
+
+        # Hash new password
+        password_hash = self._hash_password(new_password)
+
+        # Update password in database
+        database.save_user(
+            user_id=user_id,
+            email=user_data['email'],
+            name=user_data.get('name'),
+            provider='local',
+            password_hash=password_hash,
+            enabled=user_data.get('enabled', True)
+        )
+
+        logger.info(f"Password updated for user: {user_id}")
+        return True
 
     def create_user(self, email: str, name: Optional[str] = None,
                     provider: Optional[str] = None,
@@ -457,17 +591,36 @@ class RBACManager:
 
     def has_permission(self, user_id: str, permission: Permission) -> bool:
         """Check if user has a specific permission"""
+        logger.info(f"🔍 has_permission check: user_id={user_id}, permission={permission.value}")
+
         # Get user from database
         user_data = database.get_user(user_id)
-        if not user_data or not user_data.get('enabled', True):
+        logger.info(f"🔍 User data retrieved: {user_data is not None}")
+
+        if not user_data:
+            logger.warning(f"❌ User {user_id} not found in database")
             return False
+
+        if not user_data.get('enabled', True):
+            logger.warning(f"❌ User {user_id} is disabled")
+            return False
+
+        logger.info(f"🔍 User roles: {user_data.get('roles', [])}")
 
         # Check all user's roles for the permission
         for role_id in user_data.get('roles', []):
             role_data = database.get_role(role_id)
-            if role_data and permission.value in role_data['permissions']:
-                return True
+            logger.info(f"🔍 Checking role {role_id}: role_data={role_data is not None}")
 
+            if role_data:
+                logger.info(f"🔍 Role {role_id} permissions: {role_data.get('permissions', [])}")
+                if permission.value in role_data['permissions']:
+                    logger.info(f"✅ Permission {permission.value} FOUND in role {role_id}")
+                    return True
+                else:
+                    logger.info(f"⚠️  Permission {permission.value} NOT in role {role_id}")
+
+        logger.warning(f"❌ Permission {permission.value} NOT FOUND in any role for user {user_id}")
         return False
 
     def has_any_permission(self, user_id: str, permissions: List[Permission]) -> bool:
@@ -547,19 +700,82 @@ class RBACManager:
         """Check if user can execute a specific tool on a server"""
         user_data = database.get_user(user_id)
         if not user_data or not user_data.get('enabled', True):
+            logger.warning(f"User {user_id} not found or disabled")
             return False
 
         # Must have tool execute permission
         if not self.has_permission(user_id, Permission.TOOL_EXECUTE):
+            logger.warning(f"User {user_id} lacks TOOL_EXECUTE permission")
             return False
 
         # Admins can execute all tools
         if self.has_permission(user_id, Permission.TOOL_MANAGE):
+            logger.info(f"User {user_id} has TOOL_MANAGE - allowing all tools")
             return True
 
-        # TODO: Check server access and tool restrictions from user_server_access table
-        # For now, if user has TOOL_EXECUTE permission, they can execute on all servers
-        return self.can_access_server(user_id, server_id)
+        # Check role-based tool access
+        user_roles = user_data.get('roles', [])
+        for role_id in user_roles:
+            # Get allowed tools for this role on this server
+            allowed_tools = database.get_role_tools_by_server(role_id, server_id)
+
+            # If role has no tool restrictions for this server, allow access
+            if not allowed_tools:
+                # Check if role has any tool permissions at all
+                all_role_permissions = database.get_role_tool_permissions(role_id)
+                if not all_role_permissions:
+                    # No tool restrictions at all - allow all tools (backward compatible)
+                    logger.info(f"Role {role_id} has no tool restrictions - allowing tool {tool_name}")
+                    return True
+                # Has restrictions for other servers but not this one - deny
+                continue
+
+            # If tool is in allowed list, grant access
+            if tool_name in allowed_tools:
+                logger.info(f"Tool {tool_name} allowed for role {role_id} on server {server_id}")
+                return True
+
+        logger.warning(f"User {user_id} denied access to tool {tool_name} on server {server_id}")
+        return False
+
+    def get_user_allowed_tools(self, user_id: str, server_id: str) -> Optional[List[str]]:
+        """
+        Get list of allowed tools for a user on a specific server.
+        Returns None if user can access all tools, or a list of allowed tool names.
+        """
+        user_data = database.get_user(user_id)
+        if not user_data or not user_data.get('enabled', True):
+            return []
+
+        # Admins can access all tools
+        if self.has_permission(user_id, Permission.TOOL_MANAGE):
+            return None  # None means all tools
+
+        # Aggregate allowed tools from all user roles
+        allowed_tools = set()
+        has_restrictions = False
+
+        user_roles = user_data.get('roles', [])
+        for role_id in user_roles:
+            role_tools = database.get_role_tools_by_server(role_id, server_id)
+
+            if role_tools:
+                # This role has specific tool restrictions
+                allowed_tools.update(role_tools)
+                has_restrictions = True
+            else:
+                # Check if this role has tool restrictions for ANY server
+                all_role_permissions = database.get_role_tool_permissions(role_id)
+                if not all_role_permissions:
+                    # No restrictions at all for this role - user can access all tools
+                    return None
+
+        # If we have any restrictions, return the aggregated list
+        if has_restrictions:
+            return list(allowed_tools)
+
+        # No restrictions found - allow all tools
+        return None
 
 
 # Singleton instance

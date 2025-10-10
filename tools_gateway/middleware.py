@@ -161,11 +161,29 @@ def require_permission(permission: Permission):
 def get_current_user(request: Request):
     """
     Helper function to get current user from request
+    Works with or without AuthenticationMiddleware enabled
     """
+    # Try to get user_id from request.state (set by middleware if enabled)
     user_id = getattr(request.state, "user_id", None)
-    if not user_id:
+    if user_id:
+        return rbac_manager.get_user(user_id)
+
+    # Middleware not enabled - manually validate JWT token
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
         return None
-    return rbac_manager.get_user(user_id)
+
+    token = auth_header[7:]  # Remove "Bearer " prefix
+    payload = jwt_manager.verify_token(token)
+    if not payload:
+        return None
+
+    # Get user from RBAC system
+    user = rbac_manager.get_user_by_email(payload.get("email"))
+    if not user or not user.enabled:
+        return None
+
+    return user
 
 
 def check_server_access(request: Request, server_id: str) -> bool:

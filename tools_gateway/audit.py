@@ -53,6 +53,7 @@ class AuditEventType(str, Enum):
     USER_UPDATED = "user.updated"
     USER_DISABLED = "user.disabled"
     USER_ENABLED = "user.enabled"
+    USER_PASSWORD_CHANGED = "user.password.changed"
 
     # Role management events
     ROLE_CREATED = "role.created"

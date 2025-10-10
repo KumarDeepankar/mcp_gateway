@@ -278,9 +278,22 @@ async function loadGroupMembers(groupDN, containerDiv) {
             return;
         }
 
+        // Get auth token
+        const authToken = localStorage.getItem('access_token');
+        if (!authToken) {
+            containerDiv.innerHTML = `
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Authentication required. Please sign in.
+                </div>
+            `;
+            return;
+        }
+
         const response = await fetch('/admin/ad/query-group-members', {
             method: 'POST',
             headers: {
+                'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
@@ -379,12 +392,20 @@ async function refreshFetchedADData() {
         return;
     }
 
+    // Get auth token
+    const authToken = localStorage.getItem('access_token');
+    if (!authToken) {
+        showNotification('Authentication required. Please sign in.', 'error');
+        return;
+    }
+
     try {
         showNotification('Fetching AD data...', 'info');
 
         const response = await fetch('/admin/ad/query-groups', {
             method: 'POST',
             headers: {
+                'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
