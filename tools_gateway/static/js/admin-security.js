@@ -192,7 +192,8 @@ const PROVIDER_TEMPLATES = {
 let currentScopes = ['openid', 'email', 'profile'];
 
 async function loadOAuthProviders() {
-    // Sync token from auth module if needed
+    // ALWAYS try to get token from localStorage first, then from auth module
+    authToken = localStorage.getItem('access_token');
     if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
         authToken = window.authModule.getAccessToken();
     }
@@ -494,7 +495,8 @@ async function removeOAuthProvider(providerId) {
 async function loadUsers() {
     const container = document.getElementById('usersContainer');
 
-    // Sync token from auth module if needed
+    // ALWAYS try to get token from localStorage first, then from auth module
+    authToken = localStorage.getItem('access_token');
     if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
         authToken = window.authModule.getAccessToken();
     }
@@ -662,7 +664,8 @@ async function assignRole(userId, roleId) {
 async function loadRoles() {
     const container = document.getElementById('rolesContainer');
 
-    // Sync token from auth module if needed
+    // ALWAYS try to get token from localStorage first, then from auth module
+    authToken = localStorage.getItem('access_token');
     if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
         authToken = window.authModule.getAccessToken();
     }
@@ -775,6 +778,26 @@ function displayRoles(roles) {
 
 // Audit Logs
 async function loadAuditLogs() {
+    // ALWAYS try to get token from localStorage first, then from auth module
+    authToken = localStorage.getItem('access_token');
+    if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
+        authToken = window.authModule.getAccessToken();
+    }
+
+    if (!authToken) {
+        const container = document.getElementById('auditLogsContainer');
+        if (container) {
+            container.innerHTML = `
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Authentication Required</strong>
+                    <p>Please sign in to view audit logs.</p>
+                </div>
+            `;
+        }
+        return;
+    }
+
     try {
         const response = await fetch('/admin/audit/events?limit=100', {
             headers: {
@@ -1587,7 +1610,8 @@ async function saveADConfig() {
 
 // Load AD Configuration from database
 async function loadADConfig() {
-    // Sync token from auth module if needed
+    // ALWAYS try to get token from localStorage first, then from auth module
+    authToken = localStorage.getItem('access_token');
     if (!authToken && window.authModule && window.authModule.isAuthenticated()) {
         authToken = window.authModule.getAccessToken();
     }

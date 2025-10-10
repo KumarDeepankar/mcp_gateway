@@ -180,12 +180,26 @@ async function handleLocalLogin(event) {
             // Store token
             localStorage.setItem('access_token', accessToken);
 
+            // IMPORTANT: Trigger storage event for other modules (like admin-security.js)
+            // Dispatch custom event to notify admin-security.js
+            window.dispatchEvent(new StorageEvent('storage', {
+                key: 'access_token',
+                newValue: accessToken,
+                oldValue: null
+            }));
+
             // Update UI
             hideLoginModal();
             updateUIForAuthenticatedUser();
 
             // Show success message
             showNotification('Success!', 'You are now signed in.', 'success');
+
+            // Force reload of admin tabs if they're visible
+            if (typeof loadOAuthProviders === 'function') loadOAuthProviders();
+            if (typeof loadUsers === 'function') loadUsers();
+            if (typeof loadRoles === 'function') loadRoles();
+            if (typeof loadAuditLogs === 'function') loadAuditLogs();
 
         } else {
             const error = await response.json();

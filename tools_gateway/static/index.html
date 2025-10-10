@@ -6,8 +6,8 @@
     <title>MCP Server Management Portal</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link href="static/css/mcp-portal.css" rel="stylesheet">
-    <link href="static/css/oauth-forms.css" rel="stylesheet">
+    <link href="static/css/mcp-portal.css?v=6" rel="stylesheet">
+    <link href="static/css/oauth-forms.css?v=6" rel="stylesheet">
 </head>
 <body>
     <!-- Page Header -->
@@ -179,7 +179,7 @@
                             <div class="col-name">Tool</div>
                             <div class="col-endpoint">Description</div>
                             <div class="col-capabilities">Parameters</div>
-                            <div class="col-version">Auth Provider</div>
+                            <div class="col-version">Access Role</div>
                             <div class="col-actions">Actions</div>
                         </div>
                         <div class="table-body" id="toolsTableBody">
@@ -1224,73 +1224,9 @@
         </div>
     </div>
 
-    <!-- Tool Credentials Management Modal -->
-    <div id="toolCredentialsModal" class="modal">
-        <div class="modal-content modal-large">
-            <div class="modal-header">
-                <div class="modal-title" id="credentialsModalTitle">
-                    <i class="fas fa-key"></i>
-                    Manage Tool Credentials
-                </div>
-                <button class="modal-close" onclick="closeModal('toolCredentialsModal')">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="alert alert-info" style="margin-bottom: 20px;">
-                    <i class="fas fa-info-circle"></i>
-                    <strong>Local Authentication Credentials</strong>
-                    <p>Create username/password credentials for tools that require local authentication. Users must provide these credentials when calling the tool.</p>
-                </div>
-
-                <!-- Credentials List -->
-                <div id="credentialsListContainer">
-                    <!-- Credentials will be loaded here -->
-                </div>
-
-                <!-- Add Credential Form (Hidden by default) -->
-                <div id="addCredentialFormContainer" style="display: none; margin-top: 20px;">
-                    <h4 class="form-section-title">
-                        <i class="fas fa-plus"></i>
-                        Add New Credential
-                    </h4>
-                    <form id="addCredentialForm">
-                        <div class="form-group">
-                            <label class="form-label">Username *</label>
-                            <input type="text" class="form-control" id="credUsername" placeholder="Enter username" required>
-                            <small class="form-text">Unique username for this credential</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Password *</label>
-                            <input type="password" class="form-control" id="credPassword" placeholder="Enter password" required minlength="8">
-                            <small class="form-text">Minimum 8 characters</small>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Description</label>
-                            <textarea class="form-control" id="credDescription" rows="2" placeholder="Optional description for this credential"></textarea>
-                            <small class="form-text">Help text to identify this credential</small>
-                        </div>
-                    </form>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closeModal('toolCredentialsModal')">Close</button>
-                <button class="btn btn-outline" id="btnCancelAdd" style="display: none;" onclick="hideAddCredentialForm()">
-                    <i class="fas fa-times"></i> Cancel
-                </button>
-                <button class="btn btn-primary" id="btnShowAddForm" onclick="showAddCredentialForm()">
-                    <i class="fas fa-plus"></i> Add Credential
-                </button>
-                <button class="btn btn-success" id="btnSaveCredential" style="display: none;" onclick="saveToolCredential()">
-                    <i class="fas fa-save"></i> Save Credential
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <script src="static/js/mcp-portal.js"></script>
-    <script src="static/js/admin-security.js"></script>
-    <script src="static/js/admin-ad-fetched.js"></script>
-    <script src="static/js/auth.js"></script>
+    <script src="static/js/mcp-portal.js?v=6"></script>
+    <script src="static/js/admin-security.js?v=6"></script>
+    <script src="static/js/admin-ad-fetched.js?v=6"></script>
+    <script src="static/js/auth.js?v=6"></script>
 </body>
 </html>

@@ -876,166 +876,126 @@ async def clear_tool_oauth_providers(request: Request, server_id: str, tool_name
 
 
 # =====================================================================
-# TOOL LOCAL CREDENTIALS ENDPOINTS
+# TOOL ROLE ACCESS ENDPOINTS
 # =====================================================================
 
-@app.post("/admin/tools/{server_id}/{tool_name}/credentials")
-async def create_tool_credential(request: Request, server_id: str, tool_name: str, request_data: Dict[str, Any]):
-    """Create local credential for a specific tool (Admin only)"""
+@app.post("/admin/tools/{server_id}/{tool_name}/roles")
+async def set_tool_roles(request: Request, server_id: str, tool_name: str, request_data: Dict[str, Any]):
+    """Set access roles for a specific tool (Admin only)"""
     user = get_current_user(request)
-    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_MANAGE):
         raise HTTPException(status_code=403, detail="Permission denied")
 
     from database import database
 
-    username = request_data.get("username")
-    password = request_data.get("password")
-    description = request_data.get("description", "")
+    role_ids = request_data.get("role_ids", [])
 
-    if not username or not password:
-        raise HTTPException(status_code=400, detail="username and password are required")
+    # Validate that all role IDs exist
+    for role_id in role_ids:
+        role = database.get_role(role_id)
+        if not role:
+            raise HTTPException(status_code=404, detail=f"Role not found: {role_id}")
 
-    # Validate that server and tool exist
-    servers = await mcp_storage_manager.get_all_servers()
-    if server_id not in servers:
-        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+    success = database.set_role_tools_for_server(role_id, server_id, [tool_name]) if len(role_ids) == 1 else True
 
-    credential_id = database.create_tool_local_credential(
-        server_id=server_id,
-        tool_name=tool_name,
-        username=username,
-        password=password,
-        description=description
-    )
+    # For multiple roles, we need to update each role's permissions
+    if len(role_ids) > 1:
+        # First, clear existing permissions for this tool from all roles
+        all_roles = database.get_all_roles()
+        for role in all_roles:
+            existing_tools = database.get_role_tools_by_server(role['role_id'], server_id)
+            if tool_name in existing_tools:
+                # Remove this tool from the role's permissions
+                updated_tools = [t for t in existing_tools if t != tool_name]
+                database.set_role_tools_for_server(role['role_id'], server_id, updated_tools)
 
-    if not credential_id:
-        raise HTTPException(status_code=500, detail="Failed to create credential")
-
-    audit_logger.log_event(
-        AuditEventType.CONFIG_UPDATED,
-        user_id=user.user_id,
-        user_email=user.email,
-        resource_type="tool_credential",
-        resource_id=credential_id,
-        details={
-            "action": "create_credential",
-            "server_id": server_id,
-            "tool_name": tool_name,
-            "username": username
-        }
-    )
-
-    return JSONResponse(content={
-        "success": True,
-        "credential_id": credential_id,
-        "message": f"Created credential for {username} on tool {tool_name}"
-    })
-
-
-@app.get("/admin/tools/{server_id}/{tool_name}/credentials")
-async def get_tool_credentials(request: Request, server_id: str, tool_name: str):
-    """Get all local credentials for a specific tool (Admin only)"""
-    user = get_current_user(request)
-    if not user or not rbac_manager.has_permission(user.user_id, Permission.TOOL_VIEW):
-        raise HTTPException(status_code=403, detail="Permission denied")
-
-    from database import database
-    credentials = database.get_tool_local_credentials(server_id, tool_name)
-
-    return JSONResponse(content={"credentials": credentials})
-
-
-@app.get("/admin/tools/credentials")
-async def get_all_tool_credentials(request: Request):
-    """Get all local credentials across all tools (Admin only)"""
-    user = get_current_user(request)
-    if not user or not rbac_manager.has_permission(user.user_id, Permission.TOOL_VIEW):
-        raise HTTPException(status_code=403, detail="Permission denied")
-
-    from database import database
-    credentials = database.get_all_tool_local_credentials()
-
-    return JSONResponse(content={"credentials": credentials})
-
-
-@app.put("/admin/tools/credentials/{credential_id}")
-async def update_tool_credential(request: Request, credential_id: str, request_data: Dict[str, Any]):
-    """Update local credential (Admin only)"""
-    user = get_current_user(request)
-    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
-        raise HTTPException(status_code=403, detail="Permission denied")
-
-    from database import database
-
-    # Check if credential exists
-    credential = database.get_tool_local_credential_by_id(credential_id)
-    if not credential:
-        raise HTTPException(status_code=404, detail="Credential not found")
-
-    password = request_data.get("password")
-    description = request_data.get("description")
-    enabled = request_data.get("enabled")
-
-    success = database.update_tool_local_credential(
-        credential_id=credential_id,
-        password=password,
-        description=description,
-        enabled=enabled
-    )
+        # Then add permissions for the selected roles
+        for role_id in role_ids:
+            existing_tools = database.get_role_tools_by_server(role_id, server_id)
+            if tool_name not in existing_tools:
+                updated_tools = existing_tools + [tool_name]
+                database.set_role_tools_for_server(role_id, server_id, updated_tools)
 
     if success:
         audit_logger.log_event(
             AuditEventType.CONFIG_UPDATED,
             user_id=user.user_id,
             user_email=user.email,
-            resource_type="tool_credential",
-            resource_id=credential_id,
-            details={"action": "update_credential"}
-        )
-
-    return JSONResponse(content={
-        "success": success,
-        "message": "Credential updated successfully"
-    })
-
-
-@app.delete("/admin/tools/credentials/{credential_id}")
-async def delete_tool_credential(request: Request, credential_id: str):
-    """Delete local credential (Admin only)"""
-    user = get_current_user(request)
-    if not user or not rbac_manager.has_permission(user.user_id, Permission.OAUTH_MANAGE):
-        raise HTTPException(status_code=403, detail="Permission denied")
-
-    from database import database
-
-    # Check if credential exists
-    credential = database.get_tool_local_credential_by_id(credential_id)
-    if not credential:
-        raise HTTPException(status_code=404, detail="Credential not found")
-
-    success = database.delete_tool_local_credential(credential_id)
-
-    if success:
-        audit_logger.log_event(
-            AuditEventType.CONFIG_UPDATED,
-            user_id=user.user_id,
-            user_email=user.email,
-            resource_type="tool_credential",
-            resource_id=credential_id,
+            resource_type="tool_role_access",
+            resource_id=f"{server_id}/{tool_name}",
             details={
-                "action": "delete_credential",
-                "server_id": credential['server_id'],
-                "tool_name": credential['tool_name'],
-                "username": credential['username']
+                "action": "set_roles",
+                "server_id": server_id,
+                "tool_name": tool_name,
+                "role_count": len(role_ids)
             }
         )
 
     return JSONResponse(content={
         "success": success,
-        "message": "Credential deleted successfully"
+        "message": f"Set {len(role_ids)} role(s) for tool {tool_name}"
     })
 
 
+@app.get("/admin/tools/{server_id}/{tool_name}/roles")
+async def get_tool_roles(request: Request, server_id: str, tool_name: str):
+    """Get access roles for a specific tool (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.TOOL_VIEW):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+
+    # Get all roles and check which ones have access to this tool
+    all_roles = database.get_all_roles()
+    roles_with_access = []
+
+    for role in all_roles:
+        tools = database.get_role_tools_by_server(role['role_id'], server_id)
+        if tool_name in tools:
+            roles_with_access.append({
+                "role_id": role['role_id'],
+                "role_name": role['role_name'],
+                "description": role.get('description', '')
+            })
+
+    return JSONResponse(content={"roles": roles_with_access})
+
+
+@app.delete("/admin/tools/{server_id}/{tool_name}/roles")
+async def clear_tool_roles(request: Request, server_id: str, tool_name: str):
+    """Clear all access roles for a specific tool (Admin only)"""
+    user = get_current_user(request)
+    if not user or not rbac_manager.has_permission(user.user_id, Permission.ROLE_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    from database import database
+
+    # Remove this tool from all roles
+    all_roles = database.get_all_roles()
+    for role in all_roles:
+        existing_tools = database.get_role_tools_by_server(role['role_id'], server_id)
+        if tool_name in existing_tools:
+            updated_tools = [t for t in existing_tools if t != tool_name]
+            database.set_role_tools_for_server(role['role_id'], server_id, updated_tools)
+
+    audit_logger.log_event(
+        AuditEventType.CONFIG_UPDATED,
+        user_id=user.user_id,
+        user_email=user.email,
+        resource_type="tool_role_access",
+        resource_id=f"{server_id}/{tool_name}",
+        details={"action": "clear_roles"}
+    )
+
+    return JSONResponse(content={
+        "success": True,
+        "message": f"Cleared all roles for tool {tool_name}"
+    })
+
+
+# =====================================================================
+# Tool local credentials endpoints removed - using role-based access control instead
 # =====================================================================
 # USER & ROLE MANAGEMENT ENDPOINTS (RBAC)
 # =====================================================================

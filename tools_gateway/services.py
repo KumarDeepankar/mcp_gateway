@@ -544,9 +544,11 @@ class DiscoveryService:
             except Exception as e:
                 logger.error(f"Error loading servers from storage: {e}")
 
-        # Get OAuth associations from database
+        # Get OAuth associations and role permissions from database
         from database import database
         all_oauth_associations = {}
+        all_role_permissions = {}
+
         try:
             associations = database.get_all_tool_oauth_associations()
             # Group by (server_id, tool_name)
@@ -560,6 +562,24 @@ class DiscoveryService:
                 })
         except Exception as e:
             logger.error(f"Error loading OAuth associations: {e}")
+
+        try:
+            # Get all roles
+            all_roles = database.get_all_roles()
+            # For each role, get its tool permissions
+            for role in all_roles:
+                role_perms = database.get_role_tool_permissions(role['role_id'])
+                for perm in role_perms:
+                    key = (perm['server_id'], perm['tool_name'])
+                    if key not in all_role_permissions:
+                        all_role_permissions[key] = []
+                    all_role_permissions[key].append({
+                        'role_id': role['role_id'],
+                        'role_name': role['role_name'],
+                        'description': role.get('description', '')
+                    })
+        except Exception as e:
+            logger.error(f"Error loading role permissions: {e}")
 
         # Fetch from all unique servers
         tasks = [self._fetch_tools_from_server(url) for url in unique_servers]
@@ -578,7 +598,7 @@ class DiscoveryService:
                         tool['_server_url'] = server_url
                         tool['_discovery_timestamp'] = datetime.now().isoformat()
 
-                        # Add OAuth provider associations
+                        # Add OAuth provider associations and role permissions
                         server_id = server_id_map.get(server_url)
                         if server_id:
                             tool['_server_id'] = server_id
@@ -587,6 +607,10 @@ class DiscoveryService:
                                 key = (server_id, tool_name)
                                 oauth_providers = all_oauth_associations.get(key, [])
                                 tool['_oauth_providers'] = oauth_providers
+
+                                # Add role permissions
+                                roles = all_role_permissions.get(key, [])
+                                tool['_access_roles'] = roles
 
                 all_tools.extend(tools)
             else:

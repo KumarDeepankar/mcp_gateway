@@ -607,6 +607,11 @@ class RBACManager:
 
         logger.info(f"🔍 User roles: {user_data.get('roles', [])}")
 
+        # SUPERUSER CHECK: Users with "admin" role have ALL permissions automatically
+        if 'admin' in user_data.get('roles', []):
+            logger.info(f"✅ User {user_id} has 'admin' role - SUPERUSER - granting {permission.value} automatically")
+            return True
+
         # Check all user's roles for the permission
         for role_id in user_data.get('roles', []):
             role_data = database.get_role(role_id)
@@ -688,6 +693,11 @@ class RBACManager:
         if not user_data or not user_data.get('enabled', True):
             return False
 
+        # SUPERUSER CHECK: Users with "admin" role can access all servers
+        if 'admin' in user_data.get('roles', []):
+            logger.info(f"✅ User {user_id} has 'admin' role - SUPERUSER - granting server access")
+            return True
+
         # Admins can access all servers
         if self.has_permission(user_id, Permission.TOOL_MANAGE):
             return True
@@ -702,6 +712,11 @@ class RBACManager:
         if not user_data or not user_data.get('enabled', True):
             logger.warning(f"User {user_id} not found or disabled")
             return False
+
+        # SUPERUSER CHECK: Users with "admin" role can execute all tools
+        if 'admin' in user_data.get('roles', []):
+            logger.info(f"✅ User {user_id} has 'admin' role - SUPERUSER - allowing tool execution")
+            return True
 
         # Must have tool execute permission
         if not self.has_permission(user_id, Permission.TOOL_EXECUTE):
@@ -746,6 +761,11 @@ class RBACManager:
         user_data = database.get_user(user_id)
         if not user_data or not user_data.get('enabled', True):
             return []
+
+        # SUPERUSER CHECK: Users with "admin" role can access all tools
+        if 'admin' in user_data.get('roles', []):
+            logger.info(f"✅ User {user_id} has 'admin' role - SUPERUSER - allowing all tools")
+            return None  # None means all tools
 
         # Admins can access all tools
         if self.has_permission(user_id, Permission.TOOL_MANAGE):

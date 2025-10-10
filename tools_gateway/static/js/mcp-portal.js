@@ -1,4 +1,5 @@
-// MCP Portal JavaScript
+// MCP Portal JavaScript - VERSION 6 WITH RESPONSIVE DESIGN
+console.log('🚀 MCP Portal JS v6 loaded - Fully responsive UI with custom role dropdown!');
 // Dynamic URL configuration for both local development and Kubernetes deployment
 const MANAGE_URL = (() => {
     const pathname = window.location.pathname;
@@ -503,6 +504,49 @@ async function discoverTools() {
     }
 }
 
+let availableRoles = [];  // Store available roles
+
+async function loadRolesForToolDropdown() {
+    console.log('🔐 Loading roles from /admin/roles for tool dropdown...');
+    try {
+        // Get auth token from localStorage (set by admin-security.js / auth.js)
+        const authToken = localStorage.getItem('access_token');
+        console.log('🔐 Auth token present:', !!authToken);
+
+        if (!authToken) {
+            console.warn('🔐 No auth token available');
+            availableRoles = [];
+            return;
+        }
+
+        const response = await fetch('/admin/roles', {
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+        console.log('🔐 Roles response status:', response.status);
+        console.log('🔐 Roles response ok:', response.ok);
+
+        const data = await response.json();
+        console.log('🔐 Roles response data:', data);
+        console.log('🔐 data.roles exists:', !!data.roles);
+        console.log('🔐 data.roles type:', typeof data.roles);
+        console.log('🔐 data.roles value:', data.roles);
+
+        if (data.roles) {
+            availableRoles = data.roles;
+            console.log('🔐 Total roles loaded:', availableRoles.length);
+            console.log('🔐 availableRoles after assignment:', availableRoles);
+        } else {
+            console.warn('🔐 No roles array in response:', data);
+            availableRoles = [];
+        }
+    } catch (error) {
+        console.error('🔐 Failed to load roles:', error);
+        availableRoles = [];
+    }
+}
+
 async function displayTools(tools) {
     const tableBody = document.getElementById('toolsTableBody');
 
@@ -517,9 +561,17 @@ async function displayTools(tools) {
         return;
     }
 
-    // Load OAuth providers if not already loaded
-    if (availableOAuthProviders.length === 0) {
-        await loadOAuthProviders();
+    // Load roles if not already loaded
+    console.log('🔐 displayTools: availableRoles.length =', availableRoles.length);
+    if (availableRoles.length === 0) {
+        console.log('🔐 displayTools: Loading roles...');
+        try {
+            await loadRolesForToolDropdown();
+            console.log('🔐 displayTools: After loadRolesForToolDropdown(), availableRoles.length =', availableRoles.length);
+        } catch (error) {
+            console.error('🔐 displayTools: ERROR calling loadRolesForToolDropdown():', error);
+            console.error('🔐 displayTools: Error stack:', error.stack);
+        }
     }
 
     let html = '';
@@ -527,11 +579,13 @@ async function displayTools(tools) {
         const paramCount = getParameterCount(tool.inputSchema);
         const serverId = tool._server_id || '';
         const toolName = tool.name || '';
-        const oauthProviders = tool._oauth_providers || [];
+        const accessRoles = tool._access_roles || [];
 
-        // Create multi-select dropdown for OAuth providers
-        const selectedProviderIds = oauthProviders.map(p => p.provider_id);
-        const oauthDropdownId = `oauth-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        // Create multi-select dropdown for Access Roles
+        const selectedRoleIds = accessRoles.map(r => r.role_id);
+        const roleDropdownId = `role-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+        console.log(`🔐 Tool: ${toolName}, availableRoles.length: ${availableRoles.length}, accessRoles:`, accessRoles);
 
         html += `
             <div class="server-row" data-server-id="${serverId}" data-tool-name="${toolName}">
@@ -548,32 +602,55 @@ async function displayTools(tools) {
                     <span class="capabilities-count">${paramCount}</span>
                 </div>
                 <div class="col-version">
-                    ${availableOAuthProviders.length > 0 ? `
-                        <select
-                            id="${oauthDropdownId}"
-                            class="oauth-provider-select"
-                            multiple
-                            style="width: 100%; min-height: 35px; max-height: 70px; padding: 4px; font-size: 0.85rem;"
-                            onchange="updateToolOAuthProviders('${serverId}', '${toolName.replace(/'/g, '\\\'')}')"
-                            data-server-id="${serverId}"
-                            data-tool-name="${toolName}">
-                            ${availableOAuthProviders.map(provider => `
-                                <option value="${provider.provider_id}" ${selectedProviderIds.includes(provider.provider_id) ? 'selected' : ''}>
-                                    ${provider.provider_name}
-                                </option>
-                            `).join('')}
-                        </select>
+                    ${availableRoles.length > 0 ? `
+                        <div class="tool-roles-container" id="roles-container-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}">
+                            <div class="tool-roles-display" onclick="toggleToolRolesDropdown('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
+                                <div class="selected-roles-badges">
+                                    ${accessRoles.length > 0 ?
+                                        accessRoles.map(r => `<span class="role-badge-small">${r.role_name}</span>`).join('') :
+                                        '<span class="placeholder-text">Click to assign roles</span>'
+                                    }
+                                </div>
+                                <i class="fas fa-chevron-down dropdown-icon"></i>
+                            </div>
+                            <div class="tool-roles-dropdown" id="dropdown-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none;">
+                                <div class="roles-dropdown-header">
+                                    <strong>Assign Access Roles</strong>
+                                    <button class="close-dropdown" onclick="closeToolRolesDropdown('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                                <div class="roles-checklist">
+                                    ${availableRoles.map(role => `
+                                        <label class="role-checkbox-item">
+                                            <input type="checkbox" value="${role.role_id}"
+                                                   ${selectedRoleIds.includes(role.role_id) ? 'checked' : ''}
+                                                   onchange="handleRoleCheckboxChange('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
+                                            <span class="role-checkbox-label">
+                                                <strong>${role.role_name}</strong>
+                                                <small>${role.description || 'No description'}</small>
+                                            </span>
+                                        </label>
+                                    `).join('')}
+                                </div>
+                                <div class="roles-dropdown-footer">
+                                    <button class="btn btn-sm btn-outline" onclick="closeToolRolesDropdown('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
+                                        Cancel
+                                    </button>
+                                    <button class="btn btn-sm btn-primary" onclick="saveToolRoles('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
+                                        <i class="fas fa-save"></i> Save
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     ` : `
                         <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">
-                            No OAuth providers configured
+                            No roles configured
                         </div>
                     `}
                 </div>
                 <div class="col-actions">
                     <div class="action-buttons">
-                        <button class="action-btn" onclick="manageToolCredentials('${serverId}', '${toolName.replace(/'/g, '\\\'')}')" title="Manage Credentials">
-                            <i class="fas fa-key"></i>
-                        </button>
                         <button class="action-btn" onclick="selectToolForTesting('${toolName}')" title="Test Tool">
                             <i class="fas fa-play"></i>
                         </button>
@@ -1246,6 +1323,118 @@ async function updateToolOAuthProviders(serverId, toolName) {
         showAlert('Failed to update OAuth providers: ' + error.message, 'error');
     }
 }
+
+// Tool Roles Dropdown Functions
+function toggleToolRolesDropdown(serverId, toolName) {
+    const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
+    const dropdown = document.getElementById(`dropdown-${serverId}-${toolId}`);
+
+    // Close all other dropdowns
+    document.querySelectorAll('.tool-roles-dropdown').forEach(d => {
+        if (d.id !== `dropdown-${serverId}-${toolId}`) {
+            d.style.display = 'none';
+        }
+    });
+
+    // Toggle this dropdown
+    if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+function closeToolRolesDropdown(serverId, toolName) {
+    const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
+    const dropdown = document.getElementById(`dropdown-${serverId}-${toolId}`);
+    if (dropdown) {
+        dropdown.style.display = 'none';
+    }
+}
+
+function handleRoleCheckboxChange(serverId, toolName) {
+    // Just update the visual state, actual save happens when user clicks Save button
+    const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
+    const dropdown = document.getElementById(`dropdown-${serverId}-${toolId}`);
+    if (!dropdown) return;
+
+    // Get all checked checkboxes
+    const checkedBoxes = dropdown.querySelectorAll('input[type="checkbox"]:checked');
+    const displayDiv = document.querySelector(`#roles-container-${serverId}-${toolId} .selected-roles-badges`);
+
+    if (!displayDiv) return;
+
+    // Update the display with selected roles
+    if (checkedBoxes.length > 0) {
+        displayDiv.innerHTML = Array.from(checkedBoxes).map(cb => {
+            const label = cb.closest('.role-checkbox-item').querySelector('strong').textContent;
+            return `<span class="role-badge-small">${label}</span>`;
+        }).join('');
+    } else {
+        displayDiv.innerHTML = '<span class="placeholder-text">Click to assign roles</span>';
+    }
+}
+
+async function saveToolRoles(serverId, toolName) {
+    const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
+    const dropdown = document.getElementById(`dropdown-${serverId}-${toolId}`);
+
+    if (!dropdown) return;
+
+    const checkedBoxes = dropdown.querySelectorAll('input[type="checkbox"]:checked');
+    const selectedRoleIds = Array.from(checkedBoxes).map(cb => cb.value);
+
+    // Get auth token from localStorage
+    const authToken = localStorage.getItem('access_token');
+
+    if (!authToken) {
+        showAlert('Authentication required. Please log in.', 'error');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/admin/tools/${encodeURIComponent(serverId)}/${encodeURIComponent(toolName)}/roles`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
+            body: JSON.stringify({
+                role_ids: selectedRoleIds
+            })
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert(`Access roles updated for tool: ${toolName}`, 'success');
+            closeToolRolesDropdown(serverId, toolName);
+
+            // Update the display
+            const displayDiv = document.querySelector(`#roles-container-${serverId}-${toolId} .selected-roles-badges`);
+            if (displayDiv && checkedBoxes.length > 0) {
+                displayDiv.innerHTML = Array.from(checkedBoxes).map(cb => {
+                    const label = cb.closest('.role-checkbox-item').querySelector('strong').textContent;
+                    return `<span class="role-badge-small">${label}</span>`;
+                }).join('');
+            } else if (displayDiv) {
+                displayDiv.innerHTML = '<span class="placeholder-text">Click to assign roles</span>';
+            }
+        } else {
+            showAlert(`Failed to update access roles: ${result.message || 'Unknown error'}`, 'error');
+        }
+    } catch (error) {
+        console.error('Failed to update tool access roles:', error);
+        showAlert('Failed to update access roles: ' + error.message, 'error');
+    }
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', function(event) {
+    if (!event.target.closest('.tool-roles-container')) {
+        document.querySelectorAll('.tool-roles-dropdown').forEach(dropdown => {
+            dropdown.style.display = 'none';
+        });
+    }
+});
 // ===== Configuration Management Functions =====
 
 // Load all configuration
@@ -1490,172 +1679,5 @@ async function loadServerHealth() {
 
 // Configuration loading is now handled in switchTab() function
 
-// ===== Tool Credentials Management =====
-
-// Store current tool context for credentials modal
-let currentCredentialContext = { serverId: '', toolName: '' };
-
-async function manageToolCredentials(serverId, toolName) {
-    console.log('Managing credentials for:', { serverId, toolName });
-
-    // Store context
-    currentCredentialContext = { serverId, toolName };
-
-    // Load existing credentials
-    await loadToolCredentials(serverId, toolName);
-
-    // Show modal
-    showModal('toolCredentialsModal');
-}
-
-async function loadToolCredentials(serverId, toolName) {
-    try {
-        const response = await fetch(`/admin/tools/${encodeURIComponent(serverId)}/${encodeURIComponent(toolName)}/credentials`);
-        const data = await response.json();
-
-        // Update modal title
-        document.getElementById('credentialsModalTitle').textContent = `Manage Credentials: ${toolName}`;
-
-        // Display credentials list
-        displayToolCredentials(data.credentials || []);
-    } catch (error) {
-        console.error('Failed to load tool credentials:', error);
-        showAlert('Failed to load credentials: ' + error.message, 'error');
-    }
-}
-
-function displayToolCredentials(credentials) {
-    const container = document.getElementById('credentialsListContainer');
-
-    if (credentials.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state" style="padding: 20px; text-align: center;">
-                <i class="fas fa-key" style="font-size: 48px; color: #ccc;"></i>
-                <p style="margin-top: 15px; color: #999;">No credentials configured for this tool</p>
-                <p style="font-size: 0.9em; color: #999;">Click "Add Credential" to create one</p>
-            </div>
-        `;
-        return;
-    }
-
-    const html = `
-        <table class="admin-table">
-            <thead>
-                <tr>
-                    <th>Username</th>
-                    <th>Description</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${credentials.map(cred => `
-                    <tr>
-                        <td><strong>${cred.username}</strong></td>
-                        <td>${cred.description || '-'}</td>
-                        <td>${new Date(cred.created_at).toLocaleDateString()}</td>
-                        <td>
-                            <button class="btn btn-sm btn-danger" onclick="deleteToolCredential('${cred.credential_id}')">
-                                <i class="fas fa-trash"></i> Delete
-                            </button>
-                        </td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-
-    container.innerHTML = html;
-}
-
-function showAddCredentialForm() {
-    // Hide credentials list, show form
-    document.getElementById('credentialsListContainer').style.display = 'none';
-    document.getElementById('addCredentialFormContainer').style.display = 'block';
-    document.getElementById('btnShowAddForm').style.display = 'none';
-    document.getElementById('btnCancelAdd').style.display = 'inline-block';
-    document.getElementById('btnSaveCredential').style.display = 'inline-block';
-}
-
-function hideAddCredentialForm() {
-    // Show credentials list, hide form
-    document.getElementById('credentialsListContainer').style.display = 'block';
-    document.getElementById('addCredentialFormContainer').style.display = 'none';
-    document.getElementById('btnShowAddForm').style.display = 'inline-block';
-    document.getElementById('btnCancelAdd').style.display = 'none';
-    document.getElementById('btnSaveCredential').style.display = 'none';
-
-    // Clear form
-    document.getElementById('credUsername').value = '';
-    document.getElementById('credPassword').value = '';
-    document.getElementById('credDescription').value = '';
-}
-
-async function saveToolCredential() {
-    const username = document.getElementById('credUsername').value.trim();
-    const password = document.getElementById('credPassword').value;
-    const description = document.getElementById('credDescription').value.trim();
-
-    if (!username || !password) {
-        showAlert('Username and password are required', 'error');
-        return;
-    }
-
-    try {
-        const response = await fetch(
-            `/admin/tools/${encodeURIComponent(currentCredentialContext.serverId)}/${encodeURIComponent(currentCredentialContext.toolName)}/credentials`,
-            {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    username: username,
-                    password: password,
-                    description: description
-                })
-            }
-        );
-
-        const result = await response.json();
-
-        if (result.success) {
-            showAlert('Credential added successfully', 'success');
-            hideAddCredentialForm();
-            // Reload credentials list
-            await loadToolCredentials(currentCredentialContext.serverId, currentCredentialContext.toolName);
-        } else {
-            showAlert('Failed to add credential: ' + (result.message || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        console.error('Failed to save credential:', error);
-        showAlert('Failed to save credential: ' + error.message, 'error');
-    }
-}
-
-async function deleteToolCredential(credentialId) {
-    if (!confirm('Are you sure you want to delete this credential?')) return;
-
-    try {
-        const response = await fetch(
-            `/admin/tools/credentials/${credentialId}`,
-            {
-                method: 'DELETE'
-            }
-        );
-
-        const result = await response.json();
-
-        if (result.success) {
-            showAlert('Credential deleted successfully', 'success');
-            // Reload credentials list
-            await loadToolCredentials(currentCredentialContext.serverId, currentCredentialContext.toolName);
-        } else {
-            showAlert('Failed to delete credential: ' + (result.message || 'Unknown error'), 'error');
-        }
-    } catch (error) {
-        console.error('Failed to delete credential:', error);
-        showAlert('Failed to delete credential: ' + error.message, 'error');
-    }
-}
+// Tool credentials management removed - using role-based access control instead
 
