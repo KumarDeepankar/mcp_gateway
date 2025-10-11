@@ -1507,6 +1507,8 @@ async def update_user_password(request: Request, user_id: str, request_data: Dic
 @app.delete("/admin/users/{user_id}")
 async def delete_user(request: Request, user_id: str):
     """Delete user (Admin only)"""
+    from database import database
+
     logger.info(f"🗑️ DELETE /admin/users/{user_id} - Request received")
     current_user = get_current_user(request)
     if not current_user or not rbac_manager.has_permission(current_user.user_id, Permission.USER_MANAGE):

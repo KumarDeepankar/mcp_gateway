@@ -1059,9 +1059,85 @@ class Database:
             return False
 
     # ===========================================
-    # Tool Local Credentials Operations - REMOVED
-    # Using role-based access control instead
-    # Table schema kept for potential future use
+    # Tool Local Credentials Operations
+    # ===========================================
+
+    def get_tool_local_credentials(self, server_id: str, tool_name: str) -> List[Dict[str, Any]]:
+        """Get all local credentials for a specific tool"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT credential_id, server_id, tool_name, username, description, enabled, created_at, updated_at, last_used
+                FROM tool_local_credentials
+                WHERE server_id = ? AND tool_name = ? AND enabled = 1
+                ORDER BY created_at DESC
+            """, (server_id, tool_name))
+            return [dict(row) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Failed to get tool local credentials: {e}")
+            return []
+
+    def save_tool_local_credential(self, credential_id: str, server_id: str, tool_name: str,
+                                   username: str, password_hash: str, description: str = "",
+                                   enabled: bool = True) -> bool:
+        """Save or update tool local credential"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("""
+                    INSERT OR REPLACE INTO tool_local_credentials
+                    (credential_id, server_id, tool_name, username, password_hash, description, enabled, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (credential_id, server_id, tool_name, username, password_hash, description, enabled))
+                logger.info(f"Saved tool local credential: {credential_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to save tool local credential: {e}")
+            return False
+
+    def verify_tool_local_credential(self, server_id: str, tool_name: str, username: str, password: str) -> bool:
+        """Verify tool local credential"""
+        try:
+            import bcrypt
+            conn = self._get_connection()
+            cursor = conn.execute("""
+                SELECT password_hash FROM tool_local_credentials
+                WHERE server_id = ? AND tool_name = ? AND username = ? AND enabled = 1
+            """, (server_id, tool_name, username))
+            row = cursor.fetchone()
+            if row:
+                password_hash = row['password_hash']
+                # Verify password using bcrypt
+                return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
+            return False
+        except Exception as e:
+            logger.error(f"Failed to verify tool local credential: {e}")
+            return False
+
+    def update_tool_credential_last_used(self, credential_id: str) -> bool:
+        """Update last_used timestamp for a credential"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("""
+                    UPDATE tool_local_credentials
+                    SET last_used = CURRENT_TIMESTAMP
+                    WHERE credential_id = ?
+                """, (credential_id,))
+                return True
+        except Exception as e:
+            logger.error(f"Failed to update credential last_used: {e}")
+            return False
+
+    def delete_tool_local_credential(self, credential_id: str) -> bool:
+        """Delete tool local credential"""
+        try:
+            with self.transaction() as conn:
+                conn.execute("DELETE FROM tool_local_credentials WHERE credential_id = ?", (credential_id,))
+                logger.info(f"Deleted tool local credential: {credential_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete tool local credential: {e}")
+            return False
+
     # ===========================================
     # Helper Methods
     # ===========================================
