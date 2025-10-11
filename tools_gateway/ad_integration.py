@@ -210,6 +210,97 @@ class ADIntegration:
             if conn:
                 conn.unbind()
 
+    def query_users(
+        self,
+        server: str,
+        port: int,
+        bind_dn: str,
+        bind_password: str,
+        base_dn: str,
+        user_filter: str = "(objectClass=person)",
+        use_ssl: bool = False
+    ) -> List[ADUser]:
+        """
+        Query Active Directory for users directly
+
+        Args:
+            server: AD server hostname or IP
+            port: LDAP port
+            bind_dn: Distinguished Name for binding
+            bind_password: Password for binding
+            base_dn: Base DN to search from
+            user_filter: LDAP filter for users
+            use_ssl: Whether to use SSL/TLS
+
+        Returns:
+            List of ADUser objects
+        """
+        conn = None
+        try:
+            conn = self._connect_to_ad(server, port, bind_dn, bind_password, use_ssl)
+
+            # Search for users - support multiple user object classes
+            conn.search(
+                search_base=base_dn,
+                search_filter=user_filter,
+                search_scope=SUBTREE,
+                attributes=ALL_ATTRIBUTES
+            )
+
+            users = []
+            for entry in conn.entries:
+                try:
+                    # Get username - support multiple attributes
+                    username = None
+                    if hasattr(entry, 'uid'):
+                        username = str(entry.uid)
+                    elif hasattr(entry, 'sAMAccountName'):
+                        username = str(entry.sAMAccountName)
+                    elif hasattr(entry, 'cn'):
+                        username = str(entry.cn)
+
+                    # Get email - support multiple attributes
+                    email = None
+                    if hasattr(entry, 'mail'):
+                        email = str(entry.mail)
+
+                    # Generate email if not present (for testing)
+                    if not email and username:
+                        email = f"{username}@example.com"
+
+                    # Get display name - support multiple attributes
+                    display_name = None
+                    if hasattr(entry, 'displayName'):
+                        display_name = str(entry.displayName)
+                    elif hasattr(entry, 'cn'):
+                        display_name = str(entry.cn)
+                    elif hasattr(entry, 'givenName') and hasattr(entry, 'sn'):
+                        display_name = f"{entry.givenName} {entry.sn}"
+
+                    # Get DN
+                    user_dn = str(entry.entry_dn)
+
+                    if username:
+                        users.append(ADUser(
+                            username=username,
+                            email=email or f"{username}@example.com",
+                            display_name=display_name or username,
+                            dn=user_dn
+                        ))
+                except Exception as e:
+                    logger.warning(f"Error processing user entry: {e}")
+                    continue
+
+            logger.info(f"Found {len(users)} users in LDAP")
+            return users
+
+        except Exception as e:
+            logger.error(f"Error querying LDAP users: {e}")
+            raise
+        finally:
+            if conn:
+                conn.unbind()
+
     def get_group_members(
         self,
         server: str,

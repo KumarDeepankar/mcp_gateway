@@ -88,6 +88,77 @@ async def query_ad_groups(request: Request, request_data: Dict[str, Any]):
         raise HTTPException(status_code=500, detail=f"Failed to query AD: {str(e)}")
 
 
+@router.post("/query-users")
+async def query_ad_users(request: Request, request_data: Dict[str, Any]):
+    """Query Active Directory for individual users - Allows testing without auth if no users exist"""
+    # Check if this is first-time setup (no users exist)
+    all_users = rbac_manager.list_users()
+    is_first_time_setup = len(all_users) == 0
+
+    if not is_first_time_setup:
+        # Not first-time setup - require authentication and permission
+        user = get_current_user(request)
+        if not user or not rbac_manager.has_permission(user.user_id, Permission.USER_MANAGE):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    else:
+        # First-time setup - allow unauthenticated AD testing
+        user = None
+        logger.info("First-time AD user query - allowing unauthenticated access")
+
+    server = request_data.get("server")
+    port = request_data.get("port", 389)
+    bind_dn = request_data.get("bind_dn")
+    bind_password = request_data.get("bind_password")
+    base_dn = request_data.get("base_dn")
+    user_filter = request_data.get("user_filter", "(objectClass=person)")
+    use_ssl = request_data.get("use_ssl", False)
+
+    if not all([server, bind_dn, bind_password, base_dn]):
+        raise HTTPException(status_code=400, detail="Missing required AD connection parameters")
+
+    try:
+        users = ad_integration.query_users(
+            server=server,
+            port=port,
+            bind_dn=bind_dn,
+            bind_password=bind_password,
+            base_dn=base_dn,
+            user_filter=user_filter,
+            use_ssl=use_ssl
+        )
+
+        audit_logger.log_event(
+            AuditEventType.AD_GROUP_QUERY,
+            user_id=user.user_id if user else None,
+            user_email=user.email if user else "system",
+            details={"server": server, "base_dn": base_dn, "users_found": len(users), "first_time_setup": is_first_time_setup}
+        )
+
+        return JSONResponse(content={
+            "users": [
+                {
+                    "username": u.username,
+                    "email": u.email,
+                    "display_name": u.display_name,
+                    "dn": u.dn
+                }
+                for u in users
+            ]
+        })
+
+    except Exception as e:
+        logger.error(f"AD user query error: {e}")
+        audit_logger.log_event(
+            AuditEventType.AD_SYNC_FAILURE,
+            severity=AuditSeverity.ERROR,
+            user_id=user.user_id if user else None,
+            user_email=user.email if user else "system",
+            details={"error": str(e), "server": server, "first_time_setup": is_first_time_setup},
+            success=False
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to query AD users: {str(e)}")
+
+
 @router.post("/query-group-members")
 async def query_ad_group_members(request: Request, request_data: Dict[str, Any]):
     """Query Active Directory for group members - Allows testing without auth if no users exist"""

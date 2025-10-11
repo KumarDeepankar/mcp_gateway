@@ -695,22 +695,55 @@ async function loadUsers() {
     }
 }
 
+// Store all users globally for filtering
+let allUsers = [];
+let currentUserPage = 1;
+const USERS_PER_PAGE = 5;
+
 function displayUsers(users) {
     const container = document.getElementById('usersContainer');
     if (!container) return;
 
+    // Store users globally
+    allUsers = users;
+
     container.innerHTML = `
         <div class="toolbar">
-            <button class="btn btn-primary" onclick="showAddUserModal()">
-                <i class="fas fa-user-plus"></i> Add User
-            </button>
-            <button class="btn btn-outline" onclick="showADSyncModal()">
-                <i class="fas fa-sync"></i> Sync from AD
-            </button>
-            <button class="btn btn-outline" onclick="loadUsers()">
-                <i class="fas fa-refresh"></i> Refresh
-            </button>
+            <div class="toolbar-left">
+                <div class="search-box">
+                    <input type="text" class="search-input" id="userSearchInput" placeholder="Search by email..." onkeyup="filterUsers()">
+                    <i class="fas fa-search search-icon"></i>
+                </div>
+            </div>
+            <div class="toolbar-right">
+                <button class="btn btn-primary" onclick="showAddUserModal()">
+                    <i class="fas fa-user-plus"></i> Add User
+                </button>
+                <button class="btn btn-outline" onclick="loadUsers()">
+                    <i class="fas fa-refresh"></i> Refresh
+                </button>
+            </div>
         </div>
+        <div id="usersTableContainer">
+            <!-- Users table will be rendered here -->
+        </div>
+    `;
+
+    // Render the initial table
+    renderUsersTable(users);
+}
+
+function renderUsersTable(users) {
+    const tableContainer = document.getElementById('usersTableContainer');
+    if (!tableContainer) return;
+
+    // Calculate pagination
+    const startIndex = (currentUserPage - 1) * USERS_PER_PAGE;
+    const endIndex = startIndex + USERS_PER_PAGE;
+    const paginatedUsers = users.slice(startIndex, endIndex);
+    const totalPages = Math.ceil(users.length / USERS_PER_PAGE);
+
+    tableContainer.innerHTML = `
         <table class="admin-table" style="margin-top: 15px;">
             <thead>
                 <tr>
@@ -728,10 +761,10 @@ function displayUsers(users) {
                     <tr>
                         <td colspan="7" style="text-align: center; padding: 40px;">
                             <i class="fas fa-users" style="font-size: 48px; color: #ccc;"></i>
-                            <p style="margin-top: 20px; color: #999;">No users yet. Add users manually or sync from Active Directory.</p>
+                            <p style="margin-top: 20px; color: #999;">No users found. Try adjusting your search.</p>
                         </td>
                     </tr>
-                ` : users.map(u => `
+                ` : paginatedUsers.map(u => `
                     <tr>
                         <td>${u.email}</td>
                         <td>${u.name || '-'}</td>
@@ -756,7 +789,71 @@ function displayUsers(users) {
                 `).join('')}
             </tbody>
         </table>
+        ${totalPages > 1 ? `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                <div style="color: #666;">
+                    Showing ${startIndex + 1}-${Math.min(endIndex, users.length)} of ${users.length} users
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn btn-sm btn-outline" onclick="changeUserPage(${currentUserPage - 1})" ${currentUserPage === 1 ? 'disabled' : ''}>
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </button>
+                    <div style="display: flex; gap: 5px;">
+                        ${Array.from({length: totalPages}, (_, i) => i + 1).map(page => `
+                            <button class="btn btn-sm ${page === currentUserPage ? 'btn-primary' : 'btn-outline'}" onclick="changeUserPage(${page})">
+                                ${page}
+                            </button>
+                        `).join('')}
+                    </div>
+                    <button class="btn btn-sm btn-outline" onclick="changeUserPage(${currentUserPage + 1})" ${currentUserPage === totalPages ? 'disabled' : ''}>
+                        Next <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        ` : ''}
     `;
+}
+
+function changeUserPage(page) {
+    const searchTerm = document.getElementById('userSearchInput')?.value.toLowerCase() || '';
+    let filteredUsers = allUsers;
+
+    if (searchTerm) {
+        filteredUsers = allUsers.filter(user =>
+            user.email.toLowerCase().includes(searchTerm) ||
+            (user.name && user.name.toLowerCase().includes(searchTerm))
+        );
+    }
+
+    const totalPages = Math.ceil(filteredUsers.length / USERS_PER_PAGE);
+    if (page < 1 || page > totalPages) return;
+
+    currentUserPage = page;
+    renderUsersTable(filteredUsers);
+}
+
+function filterUsers() {
+    const searchInput = document.getElementById('userSearchInput');
+    if (!searchInput) return;
+
+    const searchTerm = searchInput.value.toLowerCase();
+
+    // Reset to page 1 when searching
+    currentUserPage = 1;
+
+    if (!searchTerm) {
+        // Show all users
+        renderUsersTable(allUsers);
+        return;
+    }
+
+    // Filter users by email or name
+    const filteredUsers = allUsers.filter(user =>
+        user.email.toLowerCase().includes(searchTerm) ||
+        (user.name && user.name.toLowerCase().includes(searchTerm))
+    );
+
+    renderUsersTable(filteredUsers);
 }
 
 // Show Manage User Roles Modal with checkboxes (similar to Tool Discovery)
@@ -1464,24 +1561,24 @@ function showCreateRoleModal() {
 async function loadPermissionsGrid() {
     const permissionsGrid = document.getElementById('permissionsGrid');
 
-    // All available permissions (16 total)
+    // All available permissions (must match Python Permission enum values in rbac.py)
     const allPermissions = [
-        { id: 'SERVER_READ', name: 'Server Read', description: 'View MCP servers and configurations' },
-        { id: 'SERVER_WRITE', name: 'Server Write', description: 'Add, modify, or remove MCP servers' },
-        { id: 'TOOL_EXECUTE', name: 'Tool Execute', description: 'Execute tools from MCP servers' },
-        { id: 'RESOURCE_READ', name: 'Resource Read', description: 'Access resources from MCP servers' },
-        { id: 'PROMPT_READ', name: 'Prompt Read', description: 'View available prompts' },
-        { id: 'PROMPT_EXECUTE', name: 'Prompt Execute', description: 'Execute prompts' },
-        { id: 'CONFIG_READ', name: 'Config Read', description: 'View gateway configuration' },
-        { id: 'CONFIG_WRITE', name: 'Config Write', description: 'Modify gateway configuration' },
-        { id: 'USER_READ', name: 'User Read', description: 'View users and their information' },
-        { id: 'USER_WRITE', name: 'User Write', description: 'Add, modify, or remove users' },
-        { id: 'ROLE_READ', name: 'Role Read', description: 'View roles and permissions' },
-        { id: 'ROLE_WRITE', name: 'Role Write', description: 'Create, modify, or delete roles' },
-        { id: 'AUDIT_READ', name: 'Audit Read', description: 'View audit logs and statistics' },
-        { id: 'OAUTH_MANAGE', name: 'OAuth Manage', description: 'Manage OAuth providers' },
-        { id: 'ADMIN', name: 'Admin', description: 'Full administrative access' },
-        { id: 'SYSTEM', name: 'System', description: 'System-level operations (reserved)' }
+        { id: 'server:view', name: 'Server View', description: 'View MCP servers and configurations' },
+        { id: 'server:add', name: 'Server Add', description: 'Add new MCP servers' },
+        { id: 'server:edit', name: 'Server Edit', description: 'Modify MCP servers' },
+        { id: 'server:delete', name: 'Server Delete', description: 'Remove MCP servers' },
+        { id: 'server:test', name: 'Server Test', description: 'Test MCP server connections' },
+        { id: 'tool:view', name: 'Tool View', description: 'View available tools' },
+        { id: 'tool:execute', name: 'Tool Execute', description: 'Execute tools from MCP servers' },
+        { id: 'tool:manage', name: 'Tool Manage', description: 'Manage tool permissions' },
+        { id: 'config:view', name: 'Config View', description: 'View gateway configuration' },
+        { id: 'config:edit', name: 'Config Edit', description: 'Modify gateway configuration' },
+        { id: 'user:view', name: 'User View', description: 'View users and their information' },
+        { id: 'user:manage', name: 'User Manage', description: 'Add, modify, or remove users' },
+        { id: 'role:view', name: 'Role View', description: 'View roles and permissions' },
+        { id: 'role:manage', name: 'Role Manage', description: 'Create, modify, or delete roles' },
+        { id: 'audit:view', name: 'Audit View', description: 'View audit logs and statistics' },
+        { id: 'oauth:manage', name: 'OAuth Manage', description: 'Manage OAuth providers' }
     ];
 
     permissionsGrid.innerHTML = allPermissions.map(perm => `
@@ -1612,24 +1709,24 @@ async function showEditRoleModal(roleId) {
 async function loadPermissionsForEdit(selectedPermissions) {
     const permissionsGrid = document.getElementById('editPermissionsGrid');
 
-    // All available permissions
+    // All available permissions (must match Python Permission enum values in rbac.py)
     const allPermissions = [
-        { id: 'SERVER_READ', name: 'Server Read', description: 'View MCP servers and configurations' },
-        { id: 'SERVER_WRITE', name: 'Server Write', description: 'Add, modify, or remove MCP servers' },
-        { id: 'TOOL_EXECUTE', name: 'Tool Execute', description: 'Execute tools from MCP servers' },
-        { id: 'RESOURCE_READ', name: 'Resource Read', description: 'Access resources from MCP servers' },
-        { id: 'PROMPT_READ', name: 'Prompt Read', description: 'View available prompts' },
-        { id: 'PROMPT_EXECUTE', name: 'Prompt Execute', description: 'Execute prompts' },
-        { id: 'CONFIG_READ', name: 'Config Read', description: 'View gateway configuration' },
-        { id: 'CONFIG_WRITE', name: 'Config Write', description: 'Modify gateway configuration' },
-        { id: 'USER_READ', name: 'User Read', description: 'View users and their information' },
-        { id: 'USER_WRITE', name: 'User Write', description: 'Add, modify, or remove users' },
-        { id: 'ROLE_READ', name: 'Role Read', description: 'View roles and permissions' },
-        { id: 'ROLE_WRITE', name: 'Role Write', description: 'Create, modify, or delete roles' },
-        { id: 'AUDIT_READ', name: 'Audit Read', description: 'View audit logs and statistics' },
-        { id: 'OAUTH_MANAGE', name: 'OAuth Manage', description: 'Manage OAuth providers' },
-        { id: 'ADMIN', name: 'Admin', description: 'Full administrative access' },
-        { id: 'SYSTEM', name: 'System', description: 'System-level operations (reserved)' }
+        { id: 'server:view', name: 'Server View', description: 'View MCP servers and configurations' },
+        { id: 'server:add', name: 'Server Add', description: 'Add new MCP servers' },
+        { id: 'server:edit', name: 'Server Edit', description: 'Modify MCP servers' },
+        { id: 'server:delete', name: 'Server Delete', description: 'Remove MCP servers' },
+        { id: 'server:test', name: 'Server Test', description: 'Test MCP server connections' },
+        { id: 'tool:view', name: 'Tool View', description: 'View available tools' },
+        { id: 'tool:execute', name: 'Tool Execute', description: 'Execute tools from MCP servers' },
+        { id: 'tool:manage', name: 'Tool Manage', description: 'Manage tool permissions' },
+        { id: 'config:view', name: 'Config View', description: 'View gateway configuration' },
+        { id: 'config:edit', name: 'Config Edit', description: 'Modify gateway configuration' },
+        { id: 'user:view', name: 'User View', description: 'View users and their information' },
+        { id: 'user:manage', name: 'User Manage', description: 'Add, modify, or remove users' },
+        { id: 'role:view', name: 'Role View', description: 'View roles and permissions' },
+        { id: 'role:manage', name: 'Role Manage', description: 'Create, modify, or delete roles' },
+        { id: 'audit:view', name: 'Audit View', description: 'View audit logs and statistics' },
+        { id: 'oauth:manage', name: 'OAuth Manage', description: 'Manage OAuth providers' }
     ];
 
     permissionsGrid.innerHTML = allPermissions.map(perm => {
@@ -1960,7 +2057,7 @@ async function loadADConfig() {
     }
 }
 
-// Query AD Groups from saved configuration
+// Query AD Groups from saved configuration (Deprecated - now using user search)
 async function queryADGroupsFromConfig() {
     // Get current form values
     const server = document.getElementById('adConfigServer').value.trim();
@@ -1987,9 +2084,23 @@ async function queryADGroupsFromConfig() {
         use_ssl: useSSL
     };
 
-    // Show modal with results
+    // Show modal for user search (new simplified flow)
     showADSyncModal();
-    queryADGroups();
+    // Auto-populate user filter and show instructions
+    document.getElementById('adUserFilter').value = '(objectClass=person)';
+    document.getElementById('adUsersResult').innerHTML = `
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            <strong>Search for AD Users</strong>
+            <p>Click "Search Users" to find users in your Active Directory. Common filters:</p>
+            <ul style="margin: 10px 0 0 20px;">
+                <li><code>(objectClass=person)</code> - All person objects</li>
+                <li><code>(objectClass=user)</code> - All user objects (Active Directory)</li>
+                <li><code>(&(objectClass=person)(cn=John*))</code> - Users starting with "John"</li>
+                <li><code>(&(objectClass=person)(mail=*@example.com))</code> - Users with specific email domain</li>
+            </ul>
+        </div>
+    `;
 }
 
 // Load AD Group Mappings
@@ -2074,6 +2185,9 @@ async function displayADMappings(mappings) {
                         <td>${m.last_sync ? new Date(m.last_sync).toLocaleString() : 'Never'}</td>
                         <td>${m.synced_users || 0} users</td>
                         <td>
+                            <button class="btn btn-sm btn-primary" onclick="syncADMapping('${m.mapping_id}', '${m.group_dn}', '${m.role_id}')" title="Manually sync users from AD group">
+                                <i class="fas fa-sync"></i> Sync Now
+                            </button>
                             <button class="btn btn-sm btn-danger" onclick="deleteADMapping('${m.mapping_id}')">
                                 <i class="fas fa-trash"></i> Remove
                             </button>
@@ -2083,6 +2197,160 @@ async function displayADMappings(mappings) {
             </tbody>
         </table>
     `;
+}
+
+// Sync AD Group Mapping Manually
+async function syncADMapping(mappingId, groupDN, roleId) {
+    // Check if we have AD configuration
+    if (!adConfigData.server || !adConfigData.bind_dn) {
+        showNotification('AD configuration incomplete. Please configure AD connection in the configuration section.', 'error');
+        return;
+    }
+
+    // Prompt for password if not in memory
+    let bindPassword = adConfigData.bind_password;
+    if (!bindPassword) {
+        bindPassword = prompt('Enter AD bind password to sync:');
+        if (!bindPassword) {
+            return; // User cancelled
+        }
+    }
+
+    if (!confirm(`Sync users from this AD group?\n\nThis will:\n- Fetch all members from the AD group\n- Create user accounts if they don't exist\n- Assign the mapped role to all group members`)) {
+        return;
+    }
+
+    try {
+        // First, get group members
+        showNotification('Fetching AD group members...', 'info');
+
+        const membersResponse = await fetch('/admin/ad/query-group-members', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                server: adConfigData.server,
+                port: adConfigData.port,
+                bind_dn: adConfigData.bind_dn,
+                bind_password: bindPassword,
+                group_dn: groupDN,
+                use_ssl: adConfigData.use_ssl || false
+            })
+        });
+
+        if (!membersResponse.ok) {
+            const error = await membersResponse.json();
+            showNotification('Failed to fetch AD group members: ' + (error.detail || 'Unknown error'), 'error');
+            return;
+        }
+
+        const membersData = await membersResponse.json();
+        const members = membersData.members;
+
+        if (members.length === 0) {
+            showNotification('No members found in AD group', 'warning');
+            return;
+        }
+
+        showNotification(`Found ${members.length} members. Creating/updating users...`, 'info');
+
+        // Create/update users and assign roles
+        let syncedCount = 0;
+        let errorCount = 0;
+
+        for (const member of members) {
+            try {
+                // Create or get user
+                const userResponse = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: member.email,
+                        name: member.display_name,
+                        provider: 'active_directory',
+                        roles: [roleId]
+                    })
+                });
+
+                if (userResponse.ok || userResponse.status === 409) {
+                    // User created or already exists
+                    // Try to assign role (in case user existed but didn't have this role)
+                    if (userResponse.ok) {
+                        const userData = await userResponse.json();
+                        // Role already assigned during creation
+                        syncedCount++;
+                    } else {
+                        // User exists, need to ensure role is assigned
+                        // Get user ID first
+                        const usersListResponse = await fetch('/admin/users', {
+                            headers: {
+                                'Authorization': `Bearer ${authToken}`
+                            }
+                        });
+
+                        if (usersListResponse.ok) {
+                            const usersData = await usersListResponse.json();
+                            const existingUser = usersData.users.find(u => u.email === member.email);
+
+                            if (existingUser) {
+                                // Check if role is already assigned
+                                if (!existingUser.role_ids || !existingUser.role_ids.includes(roleId)) {
+                                    // Assign role
+                                    const roleResponse = await fetch(`/admin/users/${existingUser.user_id}/roles`, {
+                                        method: 'POST',
+                                        headers: {
+                                            'Authorization': `Bearer ${authToken}`,
+                                            'Content-Type': 'application/json'
+                                        },
+                                        body: JSON.stringify({ role_id: roleId })
+                                    });
+
+                                    if (roleResponse.ok) {
+                                        syncedCount++;
+                                    } else {
+                                        errorCount++;
+                                    }
+                                } else {
+                                    syncedCount++; // Already has role
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    errorCount++;
+                }
+            } catch (error) {
+                console.error(`Error syncing user ${member.email}:`, error);
+                errorCount++;
+            }
+        }
+
+        if (errorCount > 0) {
+            showNotification(`Sync completed with errors. Synced: ${syncedCount}, Failed: ${errorCount}`, 'warning');
+        } else {
+            showNotification(`Successfully synced ${syncedCount} users from AD group`, 'success');
+        }
+
+        // Refresh UI
+        // Ensure we stay on users tab
+        if (typeof switchTab === 'function') {
+            switchTab('users');
+        }
+
+        setTimeout(() => {
+            loadUsers();
+            loadADMappings();
+        }, 100);
+
+    } catch (error) {
+        console.error('Error syncing AD mapping:', error);
+        showNotification('Error syncing AD group: ' + error.message, 'error');
+    }
 }
 
 // Delete AD Mapping
@@ -2113,18 +2381,19 @@ async function deleteADMapping(mappingId) {
 
 // Show AD Sync Modal
 function showADSyncModal() {
-    // Pre-fill form from saved config
-    if (adConfigData.server) {
-        document.getElementById('adServer').value = adConfigData.server;
-        document.getElementById('adPort').value = adConfigData.port;
-        document.getElementById('adBindDN').value = adConfigData.bind_dn;
-        document.getElementById('adPassword').value = adConfigData.bind_password;
-        document.getElementById('adBaseDN').value = adConfigData.base_dn;
-        document.getElementById('adGroupFilter').value = adConfigData.group_filter;
+    // New simplified modal - just clear previous results
+    // AD configuration is already stored in adConfigData
+    const resultsDiv = document.getElementById('adUsersResult');
+    if (resultsDiv) {
+        resultsDiv.innerHTML = '';
     }
 
-    // Clear previous results
-    document.getElementById('adGroupsResult').innerHTML = '';
+    // Set default user filter if field exists
+    const userFilterInput = document.getElementById('adUserFilter');
+    if (userFilterInput && !userFilterInput.value) {
+        userFilterInput.value = '(objectClass=person)';
+    }
+
     showModal('adSyncModal');
 }
 
@@ -2212,7 +2481,7 @@ function displayADGroups(groups) {
         <div class="alert alert-success">
             <i class="fas fa-check-circle"></i>
             <strong>Found ${groups.length} groups</strong>
-            <p>Click "Map to Role" to assign users from these groups to RBAC roles.</p>
+            <p>Click "Add Users" to import users from these groups with the "Standard User" role.</p>
         </div>
         <table class="admin-table" style="margin-top: 15px;">
             <thead>
@@ -2230,8 +2499,11 @@ function displayADGroups(groups) {
                         <td><code style="font-size: 11px;">${group.dn}</code></td>
                         <td>${group.member_count || 0} users</td>
                         <td>
-                            <button class="btn btn-sm btn-primary" onclick="showGroupMappingModal('${group.dn}', '${group.name}')">
-                                <i class="fas fa-link"></i> Map to Role
+                            <button class="btn btn-sm btn-success"
+                                    data-action="add-users"
+                                    data-group-dn="${group.dn.replace(/"/g, '&quot;')}"
+                                    data-group-name="${group.name.replace(/"/g, '&quot;')}">
+                                <i class="fas fa-user-plus"></i> Add Users
                             </button>
                         </td>
                     </tr>
@@ -2239,6 +2511,390 @@ function displayADGroups(groups) {
             </tbody>
         </table>
     `;
+
+    // Add event listeners to Add Users buttons
+    resultDiv.querySelectorAll('button[data-action="add-users"]').forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const groupDN = this.getAttribute('data-group-dn');
+            const groupName = this.getAttribute('data-group-name');
+            addUsersFromADGroup(groupDN, groupName);
+        });
+    });
+}
+
+// Query AD Users (Direct User Search)
+async function queryADUsers() {
+    // Check if we have AD configuration
+    if (!adConfigData.server || !adConfigData.bind_dn || !adConfigData.bind_password) {
+        showNotification('AD configuration incomplete. Please configure and save AD connection first.', 'error');
+        return;
+    }
+
+    const userFilter = document.getElementById('adUserFilter').value.trim();
+
+    if (!userFilter) {
+        showNotification('Please enter a user search filter', 'error');
+        return;
+    }
+
+    const resultDiv = document.getElementById('adUsersResult');
+    resultDiv.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Querying Active Directory...</div>';
+
+    try {
+        const response = await fetch('/admin/ad/query-users', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                server: adConfigData.server,
+                port: adConfigData.port,
+                bind_dn: adConfigData.bind_dn,
+                bind_password: adConfigData.bind_password,
+                base_dn: adConfigData.base_dn,
+                user_filter: userFilter,
+                use_ssl: adConfigData.use_ssl || false
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            displayADUsers(data.users);
+        } else {
+            const error = await response.json();
+            resultDiv.innerHTML = `
+                <div class="alert alert-error">
+                    <i class="fas fa-exclamation-circle"></i>
+                    <strong>AD Query Failed</strong>
+                    <p>${error.detail || 'Failed to query users from Active Directory'}</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error querying AD users:', error);
+        resultDiv.innerHTML = `
+            <div class="alert alert-error">
+                <i class="fas fa-exclamation-circle"></i>
+                <strong>Connection Error</strong>
+                <p>${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+// Display AD Users with checkboxes for selection
+function displayADUsers(users) {
+    const resultDiv = document.getElementById('adUsersResult');
+
+    if (users.length === 0) {
+        resultDiv.innerHTML = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle"></i>
+                <strong>No users found</strong>
+                <p>No users matched the search criteria. Try adjusting your filter.</p>
+            </div>
+        `;
+        return;
+    }
+
+    resultDiv.innerHTML = `
+        <div class="alert alert-success">
+            <i class="fas fa-check-circle"></i>
+            <strong>Found ${users.length} users</strong>
+            <p>Select users to add them to the system with the "Standard User" role.</p>
+        </div>
+        <div style="margin-bottom: 15px;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="selectAllUsers" onchange="toggleSelectAllUsers()">
+                <strong>Select All Users</strong>
+            </label>
+        </div>
+        <table class="admin-table" style="margin-top: 15px;">
+            <thead>
+                <tr>
+                    <th style="width: 40px;">
+                        <input type="checkbox" style="display: none;">
+                    </th>
+                    <th>Username</th>
+                    <th>Display Name</th>
+                    <th>Email</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${users.map((user, index) => `
+                    <tr>
+                        <td>
+                            <input type="checkbox" class="user-checkbox" data-user-index="${index}">
+                        </td>
+                        <td><strong>${user.username}</strong></td>
+                        <td>${user.display_name}</td>
+                        <td>${user.email}</td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+        <div style="margin-top: 20px;">
+            <button type="button" class="btn btn-success" onclick="addSelectedADUsers()">
+                <i class="fas fa-user-plus"></i> Add Selected Users
+            </button>
+        </div>
+    `;
+
+    // Store users data globally for later access
+    window.fetchedADUsers = users;
+}
+
+// Toggle select all users
+function toggleSelectAllUsers() {
+    const selectAll = document.getElementById('selectAllUsers');
+    const checkboxes = document.querySelectorAll('.user-checkbox');
+
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = selectAll.checked;
+    });
+}
+
+// Add selected AD users with Standard User role
+async function addSelectedADUsers() {
+    const checkboxes = document.querySelectorAll('.user-checkbox:checked');
+
+    if (checkboxes.length === 0) {
+        showNotification('Please select at least one user to add', 'warning');
+        return;
+    }
+
+    // Get the 'user' role (Standard User)
+    try {
+        showNotification('Loading roles...', 'info');
+        const rolesResponse = await fetch('/admin/roles', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        if (!rolesResponse.ok) {
+            showNotification('Failed to load roles', 'error');
+            return;
+        }
+
+        const rolesData = await rolesResponse.json();
+        const standardUserRole = rolesData.roles.find(r => r.role_id === 'user');
+
+        if (!standardUserRole) {
+            showNotification('Standard User role not found. Please contact administrator.', 'error');
+            return;
+        }
+
+        // Get selected users
+        const selectedUsers = [];
+        checkboxes.forEach(checkbox => {
+            const index = parseInt(checkbox.getAttribute('data-user-index'));
+            if (window.fetchedADUsers && window.fetchedADUsers[index]) {
+                selectedUsers.push(window.fetchedADUsers[index]);
+            }
+        });
+
+        if (selectedUsers.length === 0) {
+            showNotification('No valid users selected', 'error');
+            return;
+        }
+
+        showNotification(`Adding ${selectedUsers.length} users from Active Directory...`, 'info');
+
+        let successCount = 0;
+        let errorCount = 0;
+        const errors = [];
+
+        // Add each user
+        for (const user of selectedUsers) {
+            try {
+                const userResponse = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: user.email,
+                        name: user.display_name,
+                        provider: 'active_directory',
+                        roles: ['user']
+                    })
+                });
+
+                if (userResponse.ok || userResponse.status === 409) {
+                    successCount++;
+                } else {
+                    errorCount++;
+                    errors.push(`${user.username}: ${userResponse.statusText}`);
+                }
+            } catch (error) {
+                console.error(`Error adding user ${user.username}:`, error);
+                errorCount++;
+                errors.push(`${user.username}: ${error.message}`);
+            }
+        }
+
+        // Show results
+        if (errorCount === 0) {
+            showNotification(`Successfully added ${successCount} users with Standard User role!`, 'success');
+        } else {
+            showNotification(`Added ${successCount} users, ${errorCount} failed. Check console for details.`, 'warning');
+            if (errors.length > 0) {
+                console.error('Failed users:', errors);
+            }
+        }
+
+        // Close modal first
+        closeModal('adSyncModal');
+
+        // Ensure we stay on users tab
+        if (typeof switchTab === 'function') {
+            switchTab('users');
+        }
+
+        // Refresh users list after a short delay to ensure tab is active
+        setTimeout(() => {
+            loadUsers();
+        }, 100);
+
+    } catch (error) {
+        console.error('Error adding AD users:', error);
+        showNotification('Error adding users: ' + error.message, 'error');
+    }
+}
+
+// Add Users from AD Group (Simplified Flow)
+async function addUsersFromADGroup(groupDN, groupName) {
+    // Check if we have AD configuration
+    if (!adConfigData.server || !adConfigData.bind_dn || !adConfigData.bind_password) {
+        showNotification('AD configuration incomplete. Please configure and save AD connection first.', 'error');
+        return;
+    }
+
+    // Confirm action
+    if (!confirm(`Import all users from "${groupName}"?\n\nUsers will be added with the "Standard User" role.\nYou can change their roles later from User Management.`)) {
+        return;
+    }
+
+    try {
+        // Step 1: Get standard_user role ID
+        showNotification('Loading roles...', 'info');
+        const rolesResponse = await fetch('/admin/roles', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+
+        if (!rolesResponse.ok) {
+            showNotification('Failed to load roles', 'error');
+            return;
+        }
+
+        const rolesData = await rolesResponse.json();
+        const standardUserRole = rolesData.roles.find(r => r.role_id === 'user');
+
+        if (!standardUserRole) {
+            showNotification('Standard User role not found. Please contact administrator.', 'error');
+            return;
+        }
+
+        // Step 2: Fetch group members from AD
+        showNotification('Fetching users from AD group...', 'info');
+        const membersResponse = await fetch('/admin/ad/query-group-members', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                server: adConfigData.server,
+                port: adConfigData.port,
+                bind_dn: adConfigData.bind_dn,
+                bind_password: adConfigData.bind_password,
+                group_dn: groupDN,
+                use_ssl: adConfigData.use_ssl || false
+            })
+        });
+
+        if (!membersResponse.ok) {
+            const error = await membersResponse.json();
+            showNotification('Failed to fetch AD group members: ' + (error.detail || 'Unknown error'), 'error');
+            return;
+        }
+
+        const membersData = await membersResponse.json();
+        const members = membersData.members;
+
+        if (members.length === 0) {
+            showNotification('No members found in this AD group', 'warning');
+            return;
+        }
+
+        // Step 3: Add users
+        showNotification(`Adding ${members.length} users...`, 'info');
+        let addedCount = 0;
+        let existingCount = 0;
+        let errorCount = 0;
+
+        for (const member of members) {
+            try {
+                const userResponse = await fetch('/admin/users', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        email: member.email,
+                        name: member.display_name,
+                        provider: 'active_directory',
+                        roles: ['user']
+                    })
+                });
+
+                if (userResponse.ok) {
+                    addedCount++;
+                } else if (userResponse.status === 409) {
+                    // User already exists
+                    existingCount++;
+                } else {
+                    errorCount++;
+                }
+            } catch (error) {
+                console.error(`Error adding user ${member.email}:`, error);
+                errorCount++;
+            }
+        }
+
+        // Step 4: Show results
+        let message = `Completed!\n`;
+        if (addedCount > 0) message += `✓ Added: ${addedCount} users\n`;
+        if (existingCount > 0) message += `• Already existed: ${existingCount} users\n`;
+        if (errorCount > 0) message += `✗ Failed: ${errorCount} users`;
+
+        if (errorCount > 0) {
+            showNotification(message, 'warning');
+        } else {
+            showNotification(message, 'success');
+        }
+
+        // Close modal and refresh users list
+        closeModal('adSyncModal');
+
+        // Ensure we stay on users tab
+        if (typeof switchTab === 'function') {
+            switchTab('users');
+        }
+
+        // Refresh users list after a short delay
+        setTimeout(() => {
+            loadUsers();
+        }, 100);
+
+    } catch (error) {
+        console.error('Error adding users from AD group:', error);
+        showNotification('Error: ' + error.message, 'error');
+    }
 }
 
 // Show Group to Role Mapping Modal
@@ -2268,8 +2924,98 @@ async function showGroupMappingModal(groupDN, groupName) {
         console.error('Error loading roles:', error);
     }
 
+    // Preview group members
+    await previewGroupMembers(groupDN);
+
     closeModal('adSyncModal');
     showModal('groupMappingModal');
+}
+
+// Preview Group Members before syncing
+async function previewGroupMembers(groupDN) {
+    const previewContainer = document.getElementById('groupMembersPreview');
+    if (!previewContainer) {
+        // Create preview container if it doesn't exist
+        const modalBody = document.querySelector('#groupMappingModal .modal-body');
+        if (modalBody) {
+            const previewDiv = document.createElement('div');
+            previewDiv.id = 'groupMembersPreview';
+            previewDiv.style.marginTop = '15px';
+            modalBody.appendChild(previewDiv);
+        }
+        return;
+    }
+
+    previewContainer.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading group members...</div>';
+
+    try {
+        const response = await fetch('/admin/ad/query-group-members', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                server: adConfigData.server,
+                port: adConfigData.port,
+                bind_dn: adConfigData.bind_dn,
+                bind_password: adConfigData.bind_password,
+                group_dn: groupDN,
+                use_ssl: adConfigData.use_ssl || false
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            const members = data.members;
+
+            if (members.length === 0) {
+                previewContainer.innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>No Members Found</strong>
+                        <p>This group has no members.</p>
+                    </div>
+                `;
+            } else {
+                previewContainer.innerHTML = `
+                    <div class="alert alert-success">
+                        <i class="fas fa-users"></i>
+                        <strong>Found ${members.length} user(s) in this group</strong>
+                        <p>These users will be added to the system and assigned the selected role:</p>
+                    </div>
+                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: 4px; background: #f9f9f9;">
+                        ${members.map(m => `
+                            <div style="padding: 5px 0; border-bottom: 1px solid #eee;">
+                                <strong>${m.display_name}</strong><br>
+                                <small style="color: #666;">
+                                    Email: ${m.email}<br>
+                                    Username: ${m.username}
+                                </small>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+        } else {
+            previewContainer.innerHTML = `
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Could not load group members</strong>
+                    <p>Unable to fetch members for preview. You can still create the mapping.</p>
+                </div>
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading group members:', error);
+        previewContainer.innerHTML = `
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle"></i>
+                <strong>Could not load group members</strong>
+                <p>Unable to fetch members for preview. You can still create the mapping.</p>
+            </div>
+        `;
+    }
 }
 
 // Save Group to Role Mapping and Sync Users
