@@ -201,12 +201,14 @@ class OAuthProviderManager:
 
     def _generate_pkce_pair(self) -> tuple[str, str]:
         """Generate PKCE code verifier and challenge per OAuth 2.1"""
+        import base64
+
         # Generate code verifier (43-128 characters)
         code_verifier = secrets.token_urlsafe(96)[:128]
 
         # Generate code challenge (SHA256 hash of verifier, base64url encoded)
         challenge_bytes = hashlib.sha256(code_verifier.encode()).digest()
-        code_challenge = secrets.token_urlsafe(len(challenge_bytes))[:43]
+        code_challenge = base64.urlsafe_b64encode(challenge_bytes).decode('utf-8').rstrip('=')
 
         return code_verifier, code_challenge
 
@@ -387,7 +389,7 @@ class JWTManager:
     def __init__(self, secret_key: Optional[str] = None, algorithm: str = "HS256"):
         self.secret_key = secret_key or secrets.token_urlsafe(64)
         self.algorithm = algorithm
-        self.token_expiry_minutes = 60  # 1 hour default
+        self.token_expiry_minutes = 480  # 8 hours (for development/admin sessions)
 
     def create_access_token(self, user_info: UserInfo, expires_delta: Optional[timedelta] = None) -> str:
         """Create JWT access token"""

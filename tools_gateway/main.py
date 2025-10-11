@@ -537,6 +537,30 @@ async def list_oauth_providers():
     return JSONResponse(content={"providers": providers})
 
 
+@app.get("/auth/providers/{provider_id}/details")
+async def get_oauth_provider_details(provider_id: str):
+    """Get OAuth provider configuration details with masked secrets"""
+    provider = oauth_provider_manager.get_provider(provider_id)
+
+    if not provider:
+        raise HTTPException(status_code=404, detail="OAuth provider not found")
+
+    # Return provider details with masked client secret
+    provider_details = {
+        "provider_id": provider.provider_id,
+        "provider_name": provider.provider_name,
+        "client_id": provider.client_id,
+        "client_secret": "•" * 20 + provider.client_secret[-4:] if len(provider.client_secret) > 4 else "••••",
+        "authorize_url": provider.authorize_url,
+        "token_url": provider.token_url,
+        "userinfo_url": provider.userinfo_url,
+        "scopes": provider.scopes,
+        "enabled": provider.enabled
+    }
+
+    return JSONResponse(content=provider_details)
+
+
 @app.post("/auth/login/local")
 async def local_login(request: Request, request_data: Dict[str, Any]):
     """Local authentication with email and password"""
@@ -617,17 +641,29 @@ async def oauth_login(request: Request, provider_id: str):
 async def oauth_callback(request: Request, code: str, state: str):
     """Handle OAuth callback"""
     try:
+        logger.info(f"OAuth callback received - code: {code[:20]}..., state: {state[:20]}...")
+
         # Exchange code for token
         result = await oauth_provider_manager.exchange_code_for_token(code, state)
         if not result:
+            logger.error("Failed to exchange authorization code")
             raise HTTPException(status_code=400, detail="Failed to exchange authorization code")
 
         oauth_token, provider_id = result
+        logger.info(f"Token exchange successful for provider: {provider_id}")
 
         # Get user info from provider
         user_info = await oauth_provider_manager.get_user_info(provider_id, oauth_token.access_token)
         if not user_info:
+            logger.error("Failed to retrieve user information from provider")
             raise HTTPException(status_code=400, detail="Failed to retrieve user information")
+
+        logger.info(f"User info retrieved: email={user_info.email}, name={user_info.name}")
+
+        # Validate email exists
+        if not user_info.email:
+            logger.error("User email is missing from OAuth provider response")
+            raise HTTPException(status_code=400, detail="Email not provided by OAuth provider")
 
         # Get or create user in RBAC system
         user = rbac_manager.get_or_create_user(
@@ -635,9 +671,11 @@ async def oauth_callback(request: Request, code: str, state: str):
             name=user_info.name,
             provider=provider_id
         )
+        logger.info(f"User created/retrieved: user_id={user.user_id}, email={user.email}, roles={user.roles}")
 
         # Create JWT access token for MCP gateway
         access_token = jwt_manager.create_access_token(user_info)
+        logger.info(f"JWT token created for user: {user.email}")
 
         audit_logger.log_event(
             AuditEventType.AUTH_LOGIN_SUCCESS,
@@ -649,16 +687,22 @@ async def oauth_callback(request: Request, code: str, state: str):
 
         # Redirect to portal with token
         redirect_url = f"/?token={access_token}"
+        logger.info(f"Redirecting to: {redirect_url[:50]}...")
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url=redirect_url)
 
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        logger.error(f"OAuth callback error: {e}")
+        import traceback
+        error_details = traceback.format_exc()
+        logger.error(f"OAuth callback error: {e}\n{error_details}")
         audit_logger.log_event(
             AuditEventType.AUTH_LOGIN_FAILURE,
             severity=AuditSeverity.ERROR,
             ip_address=request.client.host if request.client else None,
-            details={"error": str(e)},
+            details={"error": str(e), "traceback": error_details},
             success=False
         )
         raise HTTPException(status_code=500, detail=f"Authentication failed: {str(e)}")
@@ -1458,6 +1502,57 @@ async def update_user_password(request: Request, user_id: str, request_data: Dic
     )
 
     return JSONResponse(content={"success": True, "message": "Password updated successfully"})
+
+
+@app.delete("/admin/users/{user_id}")
+async def delete_user(request: Request, user_id: str):
+    """Delete user (Admin only)"""
+    logger.info(f"🗑️ DELETE /admin/users/{user_id} - Request received")
+    current_user = get_current_user(request)
+    if not current_user or not rbac_manager.has_permission(current_user.user_id, Permission.USER_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Prevent deleting yourself
+    if current_user.user_id == user_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    # Get user details before deletion for audit log
+    logger.info(f"🗑️ Fetching user details for user_id: {user_id}")
+    user_to_delete = rbac_manager.get_user(user_id)
+    logger.info(f"🗑️ User lookup result: {user_to_delete}")
+    if not user_to_delete:
+        # Try direct database query as fallback
+        logger.warning(f"🗑️ RBAC manager returned None, trying direct database query")
+        user_data = database.get_user(user_id)
+        logger.info(f"🗑️ Direct database query result: {user_data}")
+        if not user_data:
+            raise HTTPException(status_code=404, detail=f"User not found: {user_id}")
+        # Create a simple object with the data we need
+        class SimpleUser:
+            def __init__(self, data):
+                self.email = data.get('email')
+                self.name = data.get('name')
+        user_to_delete = SimpleUser(user_data)
+
+    # Delete user
+    success = rbac_manager.delete_user(user_id)
+
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete user")
+
+    audit_logger.log_event(
+        AuditEventType.USER_DELETED,
+        user_id=current_user.user_id,
+        user_email=current_user.email,
+        resource_type="user",
+        resource_id=user_id,
+        details={
+            "deleted_user_email": user_to_delete.email,
+            "deleted_user_name": user_to_delete.name
+        }
+    )
+
+    return JSONResponse(content={"success": True, "message": "User deleted successfully"})
 
 
 # =====================================================================

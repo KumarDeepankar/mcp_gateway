@@ -560,6 +560,20 @@ class RBACManager:
             logger.info(f"Revoked role {role_id} from user {user_id}")
         return result
 
+    def delete_user(self, user_id: str) -> bool:
+        """Delete user (cascade will remove role assignments)"""
+        # Check if user exists
+        user_data = database.get_user(user_id)
+        if not user_data:
+            logger.error(f"User {user_id} not found")
+            return False
+
+        # Delete user from database
+        result = database.delete_user(user_id)
+        if result:
+            logger.info(f"Deleted user: {user_id}")
+        return result
+
     def list_users(self) -> List[Dict[str, Any]]:
         """List all users"""
         users_data = database.get_all_users()
@@ -579,7 +593,8 @@ class RBACManager:
                 "email": user_data['email'],
                 "name": user_data.get('name'),
                 "provider": user_data.get('provider'),
-                "roles": user_role_names,
+                "roles": user_role_names,  # Role names for display
+                "role_ids": user_role_ids,  # Role IDs for logic checks
                 "enabled": user_data.get('enabled', True),
                 "created_at": user_data.get('created_at'),
                 "last_login": user_data.get('last_login')

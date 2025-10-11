@@ -51,6 +51,7 @@ class AuditEventType(str, Enum):
     # User management events
     USER_CREATED = "user.created"
     USER_UPDATED = "user.updated"
+    USER_DELETED = "user.deleted"
     USER_DISABLED = "user.disabled"
     USER_ENABLED = "user.enabled"
     USER_PASSWORD_CHANGED = "user.password.changed"
@@ -104,9 +105,10 @@ class AuditLogger:
     No in-memory caching needed - database queries are fast
     """
 
-    def __init__(self):
+    def __init__(self, max_logs: int = 5):
         """Initialize audit logger (database is already initialized via singleton)"""
-        logger.info("AuditLogger initialized with SQLite database backend")
+        self.max_logs = max_logs  # Maximum number of audit logs to keep
+        logger.info(f"AuditLogger initialized with SQLite database backend (keeping last {max_logs} logs)")
 
     def log_event(
         self,
@@ -152,6 +154,9 @@ class AuditLogger:
             details=details,
             success=success
         )
+
+        # Automatically cleanup old logs to keep only last N entries
+        database.keep_last_n_audit_logs(self.max_logs)
 
         # Also log to application logger
         log_msg = f"AUDIT: {event.event_type.value} - user:{user_email or user_id or 'anonymous'} - {action or 'N/A'}"
@@ -288,6 +293,19 @@ class AuditLogger:
         logger.info(f"Cleaned up {deleted} old audit log entries")
         return deleted
 
+    def keep_last_n_logs(self, n: int = 5) -> int:
+        """Keep only the last N audit logs, delete the rest"""
+        deleted = database.keep_last_n_audit_logs(n=n)
+        logger.info(f"Kept last {n} audit logs, deleted {deleted} entries")
+        return deleted
+
+    def set_max_logs(self, max_logs: int):
+        """Set the maximum number of logs to keep"""
+        self.max_logs = max_logs
+        logger.info(f"Updated max audit logs to keep: {max_logs}")
+        # Immediately cleanup to the new limit
+        self.keep_last_n_logs(max_logs)
+
 
 # Singleton instance
-audit_logger = AuditLogger()
+audit_logger = AuditLogger(max_logs=5)

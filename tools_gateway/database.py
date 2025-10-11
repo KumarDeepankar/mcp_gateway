@@ -568,6 +568,18 @@ class Database:
             logger.error(f"Failed to update last login for {user_id}: {e}")
             return False
 
+    def delete_user(self, user_id: str) -> bool:
+        """Delete user (CASCADE will automatically remove role assignments)"""
+        try:
+            with self.transaction() as conn:
+                # ON DELETE CASCADE will handle user_roles, user_server_access automatically
+                conn.execute("DELETE FROM rbac_users WHERE user_id = ?", (user_id,))
+                logger.info(f"Deleted user: {user_id}")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to delete user {user_id}: {e}")
+            return False
+
     # ===========================================
     # Role Tool Permissions Operations
     # ===========================================
@@ -869,6 +881,34 @@ class Database:
                 return deleted
         except Exception as e:
             logger.error(f"Failed to cleanup old audit logs: {e}")
+            return 0
+
+    def keep_last_n_audit_logs(self, n: int = 5) -> int:
+        """Keep only the last N audit logs, delete the rest. Returns number deleted"""
+        try:
+            with self.transaction() as conn:
+                # Get the total count
+                cursor = conn.execute("SELECT COUNT(*) as count FROM audit_logs")
+                total = cursor.fetchone()['count']
+
+                if total <= n:
+                    logger.info(f"Only {total} audit logs exist, no cleanup needed (keeping last {n})")
+                    return 0
+
+                # Delete all but the last N entries
+                cursor = conn.execute("""
+                    DELETE FROM audit_logs
+                    WHERE event_id NOT IN (
+                        SELECT event_id FROM audit_logs
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                    )
+                """, (n,))
+                deleted = cursor.rowcount
+                logger.info(f"Kept last {n} audit logs, deleted {deleted} old entries")
+                return deleted
+        except Exception as e:
+            logger.error(f"Failed to keep last N audit logs: {e}")
             return 0
 
     # ===========================================

@@ -484,7 +484,7 @@
                 if (response.ok) {
                     const data = await response.json();
                     // Redirect to OAuth provider
-                    window.location.href = data.authorization_url;
+                    window.location.href = data.url;
                 } else {
                     const errorDiv = document.getElementById('localLoginError');
                     errorDiv.textContent = 'Failed to initiate OAuth login';

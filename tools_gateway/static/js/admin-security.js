@@ -303,6 +303,9 @@ function displayOAuthProviders(providers) {
                                 </span>
                             </div>
                             <div class="provider-actions">
+                                <button class="btn btn-sm btn-outline" onclick="viewOAuthProviderDetails('${p.provider_id}')">
+                                    <i class="fas fa-eye"></i> View Details
+                                </button>
                                 <button class="btn btn-sm btn-danger" onclick="removeOAuthProvider('${p.provider_id}')">
                                     <i class="fas fa-trash"></i> Remove
                                 </button>
@@ -491,6 +494,135 @@ async function removeOAuthProvider(providerId) {
     }
 }
 
+// View OAuth Provider Details
+async function viewOAuthProviderDetails(providerId) {
+    try {
+        const response = await fetch(`/auth/providers/${providerId}/details`);
+
+        if (response.ok) {
+            const provider = await response.json();
+            displayOAuthProviderDetails(provider);
+        } else {
+            showNotification('Failed to load provider details', 'error');
+        }
+    } catch (error) {
+        console.error('Error loading provider details:', error);
+        showNotification('Error loading provider details: ' + error.message, 'error');
+    }
+}
+
+// Display OAuth Provider Details in Modal
+function displayOAuthProviderDetails(provider) {
+    const modalContent = `
+        <div class="provider-details-view">
+            <div class="detail-row">
+                <label>Provider Name:</label>
+                <div class="detail-value">
+                    <strong>${provider.provider_name}</strong>
+                    <span class="badge ${provider.enabled ? 'badge-success' : 'badge-danger'}">
+                        ${provider.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                </div>
+            </div>
+            <div class="detail-row">
+                <label>Provider ID:</label>
+                <div class="detail-value"><code>${provider.provider_id}</code></div>
+            </div>
+            <div class="form-divider"></div>
+            <div class="detail-row">
+                <label>Client ID:</label>
+                <div class="detail-value">
+                    <code>${provider.client_id}</code>
+                    <button class="btn btn-sm btn-outline" onclick="copyToClipboard('${provider.client_id}')" title="Copy to clipboard">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="detail-row">
+                <label>Client Secret:</label>
+                <div class="detail-value">
+                    <code>${provider.client_secret}</code>
+                    <small class="text-muted">• Last 4 characters shown for security</small>
+                </div>
+            </div>
+            <div class="form-divider"></div>
+            <div class="detail-row">
+                <label>Authorization URL:</label>
+                <div class="detail-value">
+                    <code class="code-block">${provider.authorize_url}</code>
+                </div>
+            </div>
+            <div class="detail-row">
+                <label>Token URL:</label>
+                <div class="detail-value">
+                    <code class="code-block">${provider.token_url}</code>
+                </div>
+            </div>
+            <div class="detail-row">
+                <label>User Info URL:</label>
+                <div class="detail-value">
+                    <code class="code-block">${provider.userinfo_url}</code>
+                </div>
+            </div>
+            <div class="form-divider"></div>
+            <div class="detail-row">
+                <label>OAuth Scopes:</label>
+                <div class="detail-value">
+                    ${provider.scopes.map(scope => `<span class="tag">${scope}</span>`).join(' ')}
+                </div>
+            </div>
+            <div class="alert alert-info" style="margin-top: 20px;">
+                <i class="fas fa-info-circle"></i>
+                <strong>Redirect URI:</strong>
+                <p>Make sure your OAuth application is configured with this redirect URI:</p>
+                <code>${window.location.origin}/auth/callback</code>
+                <button class="btn btn-sm btn-outline" onclick="copyToClipboard('${window.location.origin}/auth/callback')" style="margin-left: 10px;">
+                    <i class="fas fa-copy"></i> Copy
+                </button>
+            </div>
+        </div>
+    `;
+
+    // Create or update modal content
+    const editModal = document.getElementById('editOAuthProviderModal');
+    if (editModal) {
+        editModal.querySelector('.modal-title').innerHTML = `
+            <i class="fas fa-eye"></i>
+            OAuth Provider Configuration
+        `;
+        editModal.querySelector('#editProviderContent').innerHTML = modalContent;
+        showModal('editOAuthProviderModal');
+    }
+}
+
+// Copy to Clipboard helper function
+function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => {
+            showNotification('Copied to clipboard!', 'success');
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            showNotification('Failed to copy to clipboard', 'error');
+        });
+    } else {
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            showNotification('Copied to clipboard!', 'success');
+        } catch (err) {
+            console.error('Failed to copy:', err);
+            showNotification('Failed to copy to clipboard', 'error');
+        }
+        document.body.removeChild(textArea);
+    }
+}
+
 // User Management (RBAC)
 async function loadUsers() {
     const container = document.getElementById('usersContainer');
@@ -615,6 +747,10 @@ function displayUsers(users) {
                             <button class="btn btn-sm btn-primary" onclick="showManageUserRolesModal('${u.user_id}', '${u.email.replace(/'/g, "\\'")}', ${JSON.stringify(u.roles).replace(/"/g, '&quot;')})">
                                 <i class="fas fa-user-cog"></i> Manage Roles
                             </button>
+                            ${u.role_ids && u.role_ids.includes('admin') ?
+                                '<button class="btn btn-sm btn-secondary" disabled title="Admin users cannot be deleted"><i class="fas fa-shield-alt"></i> Protected</button>' :
+                                `<button class="btn btn-sm btn-danger" onclick="deleteUser('${u.user_id}', '${u.email.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> Delete</button>`
+                            }
                         </td>
                     </tr>
                 `).join('')}
@@ -1277,6 +1413,40 @@ async function saveNewUser() {
     } catch (error) {
         console.error('Error adding user:', error);
         showNotification('Error adding user: ' + error.message, 'error');
+    }
+}
+
+// Delete User
+async function deleteUser(userId, userEmail) {
+    if (!confirm(`Are you sure you want to delete user "${userEmail}"?\n\nThis action cannot be undone and will remove all role assignments for this user.`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/admin/users/${userId}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${authToken}`
+            }
+        });
+
+        if (response.ok) {
+            showNotification(`User "${userEmail}" deleted successfully`, 'success');
+            loadUsers(); // Refresh the users list
+        } else if (response.status === 400) {
+            const error = await response.json();
+            showNotification(error.detail || 'Cannot delete user', 'error');
+        } else if (response.status === 403) {
+            showNotification('You do not have permission to delete users', 'error');
+        } else if (response.status === 404) {
+            showNotification('User not found', 'error');
+        } else {
+            const error = await response.json();
+            showNotification('Failed to delete user: ' + (error.detail || 'Unknown error'), 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        showNotification('Error deleting user: ' + error.message, 'error');
     }
 }
 

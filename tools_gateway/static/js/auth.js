@@ -242,7 +242,7 @@ async function initiateOAuthLogin(providerId) {
         if (response.ok) {
             const data = await response.json();
             // Redirect to OAuth provider
-            window.location.href = data.authorization_url;
+            window.location.href = data.url;
         } else {
             showNotification('Error', 'Failed to initiate OAuth login', 'error');
         }
