@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 import aiohttp
 import json
-from database import database
+from .database import database
 
 logger = logging.getLogger(__name__)
 

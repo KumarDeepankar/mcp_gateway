@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pydantic import BaseModel, Field
-from database import database
+from .database import database
 
 logger = logging.getLogger(__name__)
 

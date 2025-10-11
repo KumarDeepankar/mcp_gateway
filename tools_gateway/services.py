@@ -14,8 +14,8 @@ from typing import Dict, Any, List, Optional, AsyncGenerator, Tuple
 from datetime import datetime, timedelta
 
 # No hardcoded server imports - fully user-driven
-from mcp_storage import mcp_storage_manager
-from config import config_manager
+from .mcp_storage import mcp_storage_manager
+from .config import config_manager
 
 logger = logging.getLogger(__name__)
 
@@ -545,7 +545,7 @@ class DiscoveryService:
                 logger.error(f"Error loading servers from storage: {e}")
 
         # Get OAuth associations and role permissions from database
-        from database import database
+        from .database import database
         all_oauth_associations = {}
         all_role_permissions = {}
 

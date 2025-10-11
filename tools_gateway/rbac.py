@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional, Set
 from enum import Enum
 from pydantic import BaseModel, Field
-from database import database
+from .database import database
 
 logger = logging.getLogger(__name__)
 

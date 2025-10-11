@@ -16,7 +16,7 @@ from urllib.parse import urlencode, parse_qs, urlparse
 import aiohttp
 from jose import jwt, JWTError
 from pydantic import BaseModel, Field
-from database import database
+from .database import database
 
 logger = logging.getLogger(__name__)
 

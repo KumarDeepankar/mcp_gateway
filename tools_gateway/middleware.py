@@ -10,9 +10,9 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
-from auth import jwt_manager
-from rbac import rbac_manager, Permission
-from audit import audit_logger, AuditEventType, AuditSeverity
+from .auth import jwt_manager
+from .rbac import rbac_manager, Permission
+from .audit import audit_logger, AuditEventType, AuditSeverity
 
 logger = logging.getLogger(__name__)
 

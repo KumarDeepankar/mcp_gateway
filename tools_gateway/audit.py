@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from enum import Enum
 from pydantic import BaseModel, Field
-from database import database
+from .database import database
 
 logger = logging.getLogger(__name__)
 

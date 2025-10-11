@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from ldap3 import Server, Connection, ALL, SUBTREE, ALL_ATTRIBUTES
 from ldap3.core.exceptions import LDAPException
-from database import database
+from .database import database
 
 logger = logging.getLogger(__name__)
 
