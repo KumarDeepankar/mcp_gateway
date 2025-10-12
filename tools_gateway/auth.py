@@ -5,6 +5,7 @@ Supports multiple OAuth providers: Google, Microsoft, GitHub
 Implements MCP-compliant authentication with token management
 Uses SQLite database for provider storage
 """
+import os
 import asyncio
 import logging
 import secrets
@@ -13,9 +14,15 @@ import json
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from urllib.parse import urlencode, parse_qs, urlparse
+from pathlib import Path
 import aiohttp
 from jose import jwt, JWTError
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+# Load environment variables early
+load_dotenv(Path(__file__).resolve().parent / '.env')
+
 from .database import database
 
 logger = logging.getLogger(__name__)
@@ -424,4 +431,11 @@ class JWTManager:
 
 # Singleton instances
 oauth_provider_manager = OAuthProviderManager()
-jwt_manager = JWTManager()
+
+# Initialize JWTManager with environment variable (must match agentic_search)
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    logger.warning("JWT_SECRET not found in environment. Generating random secret. This should only happen in development.")
+    JWT_SECRET = secrets.token_urlsafe(64)
+
+jwt_manager = JWTManager(secret_key=JWT_SECRET, algorithm="HS256")

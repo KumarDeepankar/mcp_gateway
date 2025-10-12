@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, HTTPException, Request
+from fastapi import FastAPI, Query, HTTPException, Request, Depends
 from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -19,11 +19,20 @@ from langgraph.types import Command, StateSnapshot
 from ollama_query_agent.graph_definition import compiled_agent as search_compiled_agent
 from ollama_query_agent.mcp_tool_client import mcp_tool_client
 
+# Import auth modules
+from auth import get_current_user, require_auth, get_jwt_token
+from auth_routes import router as auth_router
+from debug_auth import router as debug_auth_router
+
 app = FastAPI(
     title="Agentic Search Service",
     description="LangGraph-powered search agent using Ollama and MCP tools",
     version="1.0.0",
 )
+
+# Include authentication routes
+app.include_router(auth_router)
+app.include_router(debug_auth_router)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -39,7 +48,15 @@ async def health_check():
 
 
 @app.get("/", response_class=HTMLResponse)
-async def get_chat_html():
+async def get_chat_html(request: Request):
+    # Check if user is authenticated
+    user = get_current_user(request)
+
+    if not user:
+        # Redirect to login page if not authenticated
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url="/auth/login", status_code=302)
+
     try:
         with open(CHAT_HTML_FILE, "r", encoding="utf-8") as f:
             html_content = f.read()
@@ -61,11 +78,29 @@ app.add_middleware(
 
 
 @app.get("/tools")
-async def get_available_tools():
-    """Get available tools from MCP registry"""
+async def get_available_tools(request: Request):
+    """Get available tools from MCP registry (requires authentication)"""
+    # Require authentication
+    user = require_auth(request)
+
     try:
+        # Get JWT token and set it in MCP client
+        jwt_token = get_jwt_token(request)
+        if jwt_token:
+            mcp_tool_client.set_jwt_token(jwt_token)
+
+        # Fetch tools (will be filtered by gateway based on user's roles)
         tools = await mcp_tool_client.get_available_tools()
-        return JSONResponse(content={"tools": tools})
+
+        return JSONResponse(content={
+            "tools": tools,
+            "user": {
+                "email": user.get("email"),
+                "authenticated": True
+            }
+        })
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching tools: {str(e)}")
 
@@ -216,16 +251,24 @@ AsyncGenerator[str, None]:
 
 
 @app.post("/search")
-async def search_endpoint(request: SearchRequest):
-    """Main search endpoint with streaming response"""
-    effective_session_id = request.session_id if request.session_id else f"search-{str(uuid.uuid4())}"
+async def search_endpoint(request_body: SearchRequest, http_request: Request):
+    """Main search endpoint with streaming response (requires authentication)"""
+    # Require authentication
+    user = require_auth(http_request)
+
+    # Get JWT token and set it in MCP client
+    jwt_token = get_jwt_token(http_request)
+    if jwt_token:
+        mcp_tool_client.set_jwt_token(jwt_token)
+
+    effective_session_id = request_body.session_id if request_body.session_id else f"search-{str(uuid.uuid4())}"
 
     return StreamingResponse(
         search_interaction_stream(
             effective_session_id,
-            request.query,
-            request.enabled_tools or [],
-            request.is_followup or False
+            request_body.query,
+            request_body.enabled_tools or [],
+            request_body.is_followup or False
         ),
         media_type="text/plain"
     )
@@ -233,11 +276,20 @@ async def search_endpoint(request: SearchRequest):
 
 @app.post("/chat")
 async def chat_endpoint(
+        request: Request,
         human_message: str = Query(..., description="Your search query"),
         enabled_tools: Optional[str] = Query(None, description="Comma-separated list of enabled tools"),
         session_id: Optional[str] = Query(None, description="Unique session ID")
 ):
-    """Chat-style endpoint for compatibility"""
+    """Chat-style endpoint for compatibility (requires authentication)"""
+    # Require authentication
+    user = require_auth(request)
+
+    # Get JWT token and set it in MCP client
+    jwt_token = get_jwt_token(request)
+    if jwt_token:
+        mcp_tool_client.set_jwt_token(jwt_token)
+
     effective_session_id = session_id if session_id else f"search-{str(uuid.uuid4())}"
 
     # Parse enabled tools

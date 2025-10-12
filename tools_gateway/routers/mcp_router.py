@@ -27,6 +27,7 @@ from tools_gateway import mcp_storage_manager
 from tools_gateway import jwt_manager
 from tools_gateway import audit_logger, AuditEventType, AuditSeverity
 from tools_gateway import PROTOCOL_VERSION, SERVER_INFO
+from tools_gateway.rbac import get_current_user, rbac_manager
 
 logger = logging.getLogger(__name__)
 
@@ -250,9 +251,71 @@ async def mcp_post_endpoint(
             logger.info("tools/list: Fetching from discovery service.")
             all_tools = await discovery_service.get_all_tools()
 
-            return JSONResponse(content={
-                "jsonrpc": "2.0", "id": request_id, "result": {"tools": all_tools}
-            })
+            # Get current user from JWT token (optional - allows both authenticated and anonymous access)
+            user = get_current_user(request)
+
+            if user:
+                # AUTHENTICATED ACCESS: Filter tools based on user's role permissions
+                logger.info(f"tools/list: Filtering tools for user {user.email} with roles {user.roles}")
+                allowed_tools = []
+
+                for tool in all_tools:
+                    server_id = tool.get('_server_id')
+                    tool_name = tool.get('name')
+
+                    if not tool_name:
+                        # Skip tools without a name
+                        logger.warning(f"Tool without name found - skipping: {tool}")
+                        continue
+
+                    if not server_id:
+                        # SECURITY: Tools without server_id cannot be authorized via RBAC
+                        # These should not exist in a properly configured system
+                        logger.warning(f"Tool '{tool_name}' has no server_id - denying access for security")
+                        continue
+
+                    # Check if user can execute this tool
+                    can_execute = rbac_manager.can_execute_tool(user.user_id, server_id, tool_name)
+
+                    if can_execute:
+                        allowed_tools.append(tool)
+                    else:
+                        logger.debug(f"User {user.email} denied access to tool {tool_name}")
+
+                logger.info(f"tools/list: Returning {len(allowed_tools)} of {len(all_tools)} tools for user {user.email}")
+
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {
+                        "tools": allowed_tools,
+                        "_metadata": {
+                            "total_tools": len(all_tools),
+                            "filtered_tools": len(allowed_tools),
+                            "user_email": user.email,
+                            "authenticated": True
+                        }
+                    }
+                })
+            else:
+                # UNAUTHENTICATED ACCESS: Return all tools (or implement your policy)
+                # Option A: Allow anonymous access to all tools
+                logger.warning("tools/list: Anonymous access - returning all tools (consider requiring auth)")
+
+                # Option B: Require authentication (uncomment to enforce)
+                # raise HTTPException(status_code=401, detail="Authentication required")
+
+                return JSONResponse(content={
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": {
+                        "tools": all_tools,
+                        "_metadata": {
+                            "total_tools": len(all_tools),
+                            "authenticated": False
+                        }
+                    }
+                })
 
         # Handle tools/call request with streaming
         elif method == "tools/call":
@@ -275,6 +338,102 @@ async def mcp_post_endpoint(
                     return JSONResponse(content=error_response, status_code=404)
                 else:
                     raise HTTPException(status_code=404, detail=f"Tool not found: {tool_name}")
+
+            # === AUTHORIZATION CHECK ===
+            # Get current user from JWT token
+            user = get_current_user(request)
+
+            if user:
+                # AUTHENTICATED: Check if user has permission to execute this tool
+                logger.info(f"tools/call: Checking authorization for user {user.email} to execute {tool_name}")
+
+                # Get tool metadata to find server_id
+                all_tools = await discovery_service.get_all_tools()
+                tool_metadata = next((t for t in all_tools if t.get('name') == tool_name), None)
+
+                if not tool_metadata:
+                    logger.error(f"Tool metadata not found for {tool_name}")
+                    error_response = mcp_gateway.create_error_response(
+                        request_id,
+                        -32601,
+                        f"Tool not found: {tool_name}"
+                    )
+                    return JSONResponse(content=error_response, status_code=404)
+
+                server_id = tool_metadata.get('_server_id')
+
+                if not server_id:
+                    # SECURITY: Tools without server_id cannot be authorized via RBAC
+                    logger.error(f"Tool '{tool_name}' has no server_id - denying execution for security")
+                    error_response = mcp_gateway.create_error_response(
+                        request_id,
+                        -32003,
+                        f"Access denied: Tool '{tool_name}' is not properly configured for RBAC"
+                    )
+                    return JSONResponse(content=error_response, status_code=403)
+
+                # Check if user can execute this tool
+                can_execute = rbac_manager.can_execute_tool(user.user_id, server_id, tool_name)
+
+                if not can_execute:
+                    # AUTHORIZATION DENIED
+                    logger.warning(f"User {user.email} denied access to execute tool {tool_name}")
+
+                    # Log unauthorized access attempt
+                    audit_logger.log_event(
+                        AuditEventType.AUTHZ_PERMISSION_DENIED,
+                        severity=AuditSeverity.WARNING,
+                        user_id=user.user_id,
+                        user_email=user.email,
+                        ip_address=request.client.host if request.client else None,
+                        resource_type="tool",
+                        resource_id=tool_name,
+                        details={
+                            "action": "execute",
+                            "server_id": server_id,
+                            "server_url": server_url
+                        },
+                        success=False
+                    )
+
+                    error_response = mcp_gateway.create_error_response(
+                        request_id,
+                        -32003,
+                        f"Access denied: You do not have permission to execute tool '{tool_name}'"
+                    )
+                    return JSONResponse(content=error_response, status_code=403)
+
+                # AUTHORIZATION GRANTED
+                logger.info(f"User {user.email} authorized to execute tool {tool_name}")
+
+                # Log successful authorization
+                audit_logger.log_event(
+                    AuditEventType.AUTHZ_PERMISSION_GRANTED,
+                    user_id=user.user_id,
+                    user_email=user.email,
+                    ip_address=request.client.host if request.client else None,
+                    resource_type="tool",
+                    resource_id=tool_name,
+                    details={
+                        "action": "execute",
+                        "server_id": server_id,
+                        "server_url": server_url
+                    }
+                )
+            else:
+                # UNAUTHENTICATED ACCESS
+                # Option A: Allow anonymous tool execution (current behavior)
+                logger.warning(f"tools/call: Anonymous execution of tool {tool_name} (consider requiring auth)")
+
+                # Option B: Require authentication (uncomment to enforce)
+                # error_response = mcp_gateway.create_error_response(
+                #     request_id,
+                #     -32002,
+                #     "Authentication required to execute tools"
+                # )
+                # return JSONResponse(content=error_response, status_code=401)
+
+            # === END AUTHORIZATION CHECK ===
 
             # === AUTHENTICATION VALIDATION ===
             # Get tool metadata to check for required authentication

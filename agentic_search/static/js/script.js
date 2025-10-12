@@ -13,6 +13,7 @@ class AgenticSearch {
         this.setupEventListeners();
         this.loadSettings();
         this.loadAvailableTools();
+        this.loadUserProfile(); // Load user info
 
         // Set copyright year
         document.getElementById('copyright-year').textContent = new Date().getFullYear();
@@ -91,6 +92,11 @@ class AgenticSearch {
 
         // Window resize handler
         window.addEventListener('resize', () => this.handleWindowResize());
+
+        // Logout button
+        document.getElementById('logout-button').addEventListener('click', () => {
+            this.handleLogout();
+        });
     }
 
     toggleProcessingDisplay() {
@@ -368,6 +374,8 @@ class AgenticSearch {
                         finalResponseStarted = true;
                         // Add a separator before final response
                         this.addResponseSeparator();
+                        // Trigger glow effect on the query container
+                        this.triggerAnswerGlow();
                     } else if (line.startsWith('HTML_CONTENT_START:')) {
                         htmlContentMode = true;
                         if (!currentAssistantMessage) {
@@ -548,10 +556,18 @@ class AgenticSearch {
     }
 
     addResponseSeparator() {
-        // Collapse the thinking stream when final response starts
+        // Auto-collapse the processing steps when final response starts
         const stepChain = this.getCurrentStepChain();
-        if (stepChain) {
+        if (stepChain && !stepChain.classList.contains('collapsed')) {
             stepChain.classList.add('collapsed');
+
+            // Update the collapse button icon to down arrow
+            const collapseBtn = stepChain.querySelector('.chain-collapse-btn');
+            if (collapseBtn) {
+                collapseBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>`;
+            }
         }
 
         // Separator is now hidden via CSS
@@ -569,6 +585,18 @@ class AgenticSearch {
         this.scrollToBottom();
     }
 
+    triggerAnswerGlow() {
+        // Add glow effect to current query container when final answer appears
+        if (this.currentQueryContainer) {
+            this.currentQueryContainer.classList.add('answer-glow');
+
+            // Remove the class after animation completes to allow re-triggering
+            setTimeout(() => {
+                this.currentQueryContainer.classList.remove('answer-glow');
+            }, 1800); // Match the shorter animation duration (1.8s)
+        }
+    }
+
     addExplanationToggle() {
         // Add explanation toggle button after the final response
         if (!this.currentQueryContainer) return;
@@ -582,15 +610,31 @@ class AgenticSearch {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <polyline points="6 9 12 15 18 9"></polyline>
             </svg>
-            <span>Explanation</span>
+            <span>Show Thinking</span>
         `;
 
         toggleBtn.addEventListener('click', () => {
             const isExpanded = toggleBtn.classList.toggle('expanded');
             if (isExpanded) {
                 stepChain.classList.remove('collapsed');
+                toggleBtn.querySelector('span').textContent = 'Hide Thinking';
+                // Update collapse button icon to up arrow
+                const collapseBtn = stepChain.querySelector('.chain-collapse-btn');
+                if (collapseBtn) {
+                    collapseBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>`;
+                }
             } else {
                 stepChain.classList.add('collapsed');
+                toggleBtn.querySelector('span').textContent = 'Show Thinking';
+                // Update collapse button icon to down arrow
+                const collapseBtn = stepChain.querySelector('.chain-collapse-btn');
+                if (collapseBtn) {
+                    collapseBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>`;
+                }
             }
         });
 
@@ -617,12 +661,37 @@ class AgenticSearch {
 
         const stepChain = document.createElement('div');
         stepChain.classList.add('step-chain');
-        stepChain.innerHTML = '<div class="chain-title">🔗 Processing Steps</div><div class="chain-steps"></div>';
+        stepChain.innerHTML = `
+            <div class="chain-title">
+                <span>🔗 Processing Steps</span>
+                <button class="chain-collapse-btn" title="Collapse">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"></polyline>
+                    </svg>
+                </button>
+            </div>
+            <div class="chain-steps"></div>
+        `;
 
         // Apply visibility based on current settings
         if (!this.showThinking) {
             stepChain.style.display = 'none';
         }
+
+        // Add collapse button event listener
+        const collapseBtn = stepChain.querySelector('.chain-collapse-btn');
+        collapseBtn.addEventListener('click', () => {
+            stepChain.classList.toggle('collapsed');
+            // Update button icon direction
+            const isCollapsed = stepChain.classList.contains('collapsed');
+            collapseBtn.innerHTML = isCollapsed ?
+                `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>` :
+                `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>`;
+        });
 
         this.currentQueryContainer.appendChild(stepChain);
         return stepChain;
@@ -655,6 +724,51 @@ class AgenticSearch {
         };
 
         localStorage.setItem('agenticSearchSettings', JSON.stringify(settings));
+    }
+
+    async loadUserProfile() {
+        try {
+            const response = await fetch('/auth/user');
+            if (response.ok) {
+                const userData = await response.json();
+                this.displayUserInfo(userData);
+            } else {
+                console.error('Failed to load user info');
+                document.getElementById('user-name-display').textContent = 'Guest';
+            }
+        } catch (error) {
+            console.error('Error loading user profile:', error);
+            document.getElementById('user-name-display').textContent = 'Guest';
+        }
+    }
+
+    displayUserInfo(userData) {
+        const userNameDisplay = document.getElementById('user-name-display');
+        // Display name if available, otherwise email
+        const displayName = userData.name || userData.email || 'User';
+        userNameDisplay.textContent = displayName;
+    }
+
+    async handleLogout() {
+        try {
+            const response = await fetch('/auth/logout', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.ok) {
+                // Redirect to login page after successful logout
+                window.location.href = '/auth/login';
+            } else {
+                console.error('Logout failed');
+                alert('Logout failed. Please try again.');
+            }
+        } catch (error) {
+            console.error('Error during logout:', error);
+            alert('Error during logout. Please try again.');
+        }
     }
 }
 

@@ -1544,7 +1544,18 @@ async function saveToolRoles(serverId, toolName) {
             showAlert(`Access roles updated for tool: ${toolName}`, 'success');
             closeToolRolesDropdown(serverId, toolName);
 
-            // Update the display
+            // Update the underlying tool data in discoveredTools array
+            const toolIndex = discoveredTools.findIndex(t => t.name === toolName && t._server_id === serverId);
+            if (toolIndex !== -1) {
+                // Update the _access_roles with the new selection
+                discoveredTools[toolIndex]._access_roles = Array.from(checkedBoxes).map(cb => ({
+                    role_id: cb.value,
+                    role_name: cb.closest('.role-checkbox-item').querySelector('strong').textContent,
+                    description: cb.closest('.role-checkbox-item').querySelector('small').textContent
+                }));
+            }
+
+            // Update the visual display
             const displayDiv = document.querySelector(`#roles-container-${serverId}-${toolId} .selected-roles-badges`);
             if (displayDiv && checkedBoxes.length > 0) {
                 displayDiv.innerHTML = Array.from(checkedBoxes).map(cb => {

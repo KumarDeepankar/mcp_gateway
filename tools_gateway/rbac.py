@@ -12,8 +12,54 @@ from typing import Dict, Any, List, Optional, Set
 from enum import Enum
 from pydantic import BaseModel, Field
 from .database import database
+from .auth import jwt_manager
 
 logger = logging.getLogger(__name__)
+
+
+def get_current_user(request):
+    """
+    Extract and validate user from JWT token in request.
+    Returns None if no token or invalid token.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        User object if authenticated, None otherwise
+    """
+    # Try Authorization header
+    auth_header = request.headers.get("Authorization")
+
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:]  # Remove "Bearer " prefix
+
+        try:
+            # Validate JWT token
+            payload = jwt_manager.verify_token(token)
+
+            if payload:
+                # Get user from database using email from token
+                email = payload.get("email")
+                if email:
+                    user_data = database.get_user_by_email(email)
+
+                    if user_data and user_data.get('enabled', True):
+                        # Convert to User object
+                        return User(
+                            user_id=user_data['user_id'],
+                            email=user_data['email'],
+                            name=user_data.get('name'),
+                            provider=user_data.get('provider'),
+                            roles=set(user_data.get('roles', [])),
+                            enabled=user_data.get('enabled', True),
+                            created_at=datetime.fromisoformat(user_data['created_at']) if user_data.get('created_at') else datetime.now(),
+                            last_login=datetime.fromisoformat(user_data['last_login']) if user_data.get('last_login') else None
+                        )
+        except Exception as e:
+            logger.warning(f"Error validating JWT token: {e}")
+
+    return None
 
 
 class Permission(str, Enum):
@@ -722,50 +768,50 @@ class RBACManager:
         return self.has_permission(user_id, Permission.TOOL_VIEW)
 
     def can_execute_tool(self, user_id: str, server_id: str, tool_name: str) -> bool:
-        """Check if user can execute a specific tool on a server"""
+        """
+        Check if user can execute a specific tool on a server.
+
+        RBAC Policy (Deny by Default):
+        - Admin role: Full access to all tools
+        - TOOL_MANAGE permission: Full access to all tools
+        - Other users: Only tools explicitly assigned to their role(s)
+        - No assignment = Access Denied (secure default)
+        """
         user_data = database.get_user(user_id)
         if not user_data or not user_data.get('enabled', True):
-            logger.warning(f"User {user_id} not found or disabled")
+            logger.warning(f"❌ RBAC: User {user_id} not found or disabled")
             return False
 
         # SUPERUSER CHECK: Users with "admin" role can execute all tools
         if 'admin' in user_data.get('roles', []):
-            logger.info(f"✅ User {user_id} has 'admin' role - SUPERUSER - allowing tool execution")
+            logger.info(f"✅ RBAC: User {user_id} has 'admin' role - SUPERUSER - allowing tool {tool_name}")
             return True
 
         # Must have tool execute permission
         if not self.has_permission(user_id, Permission.TOOL_EXECUTE):
-            logger.warning(f"User {user_id} lacks TOOL_EXECUTE permission")
+            logger.warning(f"❌ RBAC: User {user_id} lacks TOOL_EXECUTE permission")
             return False
 
-        # Admins can execute all tools
+        # Users with TOOL_MANAGE can execute all tools
         if self.has_permission(user_id, Permission.TOOL_MANAGE):
-            logger.info(f"User {user_id} has TOOL_MANAGE - allowing all tools")
+            logger.info(f"✅ RBAC: User {user_id} has TOOL_MANAGE - allowing all tools")
             return True
 
-        # Check role-based tool access
+        # Check role-based tool access (EXPLICIT ASSIGNMENT REQUIRED)
         user_roles = user_data.get('roles', [])
+
+        # Collect all allowed tools from all roles
         for role_id in user_roles:
             # Get allowed tools for this role on this server
             allowed_tools = database.get_role_tools_by_server(role_id, server_id)
 
-            # If role has no tool restrictions for this server, allow access
-            if not allowed_tools:
-                # Check if role has any tool permissions at all
-                all_role_permissions = database.get_role_tool_permissions(role_id)
-                if not all_role_permissions:
-                    # No tool restrictions at all - allow all tools (backward compatible)
-                    logger.info(f"Role {role_id} has no tool restrictions - allowing tool {tool_name}")
-                    return True
-                # Has restrictions for other servers but not this one - deny
-                continue
-
             # If tool is in allowed list, grant access
-            if tool_name in allowed_tools:
-                logger.info(f"Tool {tool_name} allowed for role {role_id} on server {server_id}")
+            if allowed_tools and tool_name in allowed_tools:
+                logger.info(f"✅ RBAC: Tool '{tool_name}' explicitly allowed for role '{role_id}' on server '{server_id}'")
                 return True
 
-        logger.warning(f"User {user_id} denied access to tool {tool_name} on server {server_id}")
+        # DENY BY DEFAULT: No explicit permission found
+        logger.warning(f"❌ RBAC: User {user_id} (email: {user_data.get('email')}) denied access to tool '{tool_name}' on server '{server_id}' - No explicit role assignment found")
         return False
 
     def get_user_allowed_tools(self, user_id: str, server_id: str) -> Optional[List[str]]:

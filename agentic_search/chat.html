@@ -15,6 +15,21 @@
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
     <aside id="left-sidebar" class="sidebar-visible">
+        <div id="user-profile-section" class="user-profile">
+            <div class="user-info">
+                <span class="user-icon">👤</span>
+                <span class="user-name" id="user-name-display">Loading...</span>
+            </div>
+            <button id="logout-button" class="logout-btn" title="Logout">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                    <polyline points="16 17 21 12 16 7"></polyline>
+                    <line x1="21" y1="12" x2="9" y2="12"></line>
+                </svg>
+                <span>Logout</span>
+            </button>
+        </div>
+
         <div class="sidebar-header">
             <h3>Tools & Controls</h3>
             <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="Collapse Sidebar">

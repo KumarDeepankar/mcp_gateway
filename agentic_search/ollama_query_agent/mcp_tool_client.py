@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 class MCPToolClient:
     """Client for communicating with MCP Registry Discovery service"""
 
-    def __init__(self, registry_base_url: str = None, origin: str = None):
+    def __init__(self, registry_base_url: str = None, origin: str = None, jwt_token: str = None):
         # Support environment-based configuration for distributed deployments
         self.registry_base_url = registry_base_url or os.getenv("MCP_GATEWAY_URL", "http://localhost:8021")
 
@@ -30,7 +30,29 @@ class MCPToolClient:
             self.origin = self.registry_base_url
 
         self.client = httpx.AsyncClient(timeout=60)
-        logger.info(f"MCPToolClient initialized: gateway={self.registry_base_url}, origin={self.origin}")
+        self.jwt_token = jwt_token  # JWT token for authentication
+        logger.info(f"MCPToolClient initialized: gateway={self.registry_base_url}, origin={self.origin}, authenticated={bool(jwt_token)}")
+
+    def set_jwt_token(self, token: str):
+        """Update JWT token for authentication"""
+        self.jwt_token = token
+        logger.info("JWT token updated for MCP client")
+
+    def _get_headers(self) -> Dict[str, str]:
+        """Get headers including authentication if available"""
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            "MCP-Protocol-Version": "2025-06-18",
+            "Origin": self.origin
+        }
+
+        # Add authentication if JWT token is available
+        if self.jwt_token:
+            headers["Authorization"] = f"Bearer {self.jwt_token}"
+            logger.debug("Added JWT authentication to request headers")
+
+        return headers
 
     async def get_available_tools(self) -> List[Dict[str, Any]]:
         """Fetch available tools from MCP registry"""
@@ -49,15 +71,20 @@ class MCPToolClient:
                 }
             }
 
-            headers = {
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-                "MCP-Protocol-Version": "2025-06-18",
-                "Origin": self.origin
-            }
+            # Get headers with authentication
+            headers = self._get_headers()
 
             # Initialize session
             response = await self.client.post(f"{self.registry_base_url}/mcp", json=init_payload, headers=headers)
+
+            # Handle authentication errors
+            if response.status_code == 401:
+                logger.error("Authentication required to access tools")
+                return []
+            elif response.status_code == 403:
+                logger.error("Access denied to tools")
+                return []
+
             response.raise_for_status()
 
             session_id = response.headers.get("Mcp-Session-Id")
@@ -113,15 +140,18 @@ class MCPToolClient:
                 }
             }
 
-            headers = {
-                "Accept": "application/json, text/event-stream",
-                "Content-Type": "application/json",
-                "MCP-Protocol-Version": "2025-06-18",
-                "Origin": self.origin
-            }
+            # Get headers with authentication
+            headers = self._get_headers()
 
             # Initialize session
             response = await self.client.post(f"{self.registry_base_url}/mcp", json=init_payload, headers=headers)
+
+            # Handle authentication errors
+            if response.status_code == 401:
+                return {"error": "Authentication required"}
+            elif response.status_code == 403:
+                return {"error": f"Access denied to tool: {tool_name}"}
+
             response.raise_for_status()
 
             session_id = response.headers.get("Mcp-Session-Id")

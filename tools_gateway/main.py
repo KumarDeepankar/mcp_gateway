@@ -9,6 +9,12 @@ REFACTORED: Modular architecture with separate routers for better maintainabilit
 from contextlib import asynccontextmanager
 import logging
 import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / '.env')
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse
@@ -88,8 +94,9 @@ app.add_middleware(
 # Note: AuthenticationMiddleware is optional - enable it to enforce authentication on all endpoints
 # app.add_middleware(AuthenticationMiddleware)
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static files (use absolute path)
+STATIC_DIR = BASE_DIR / "static"
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 # --- Core Endpoints ---
@@ -101,7 +108,7 @@ async def root(request: Request):
     logger.info(f"Root request from: {request.client.host if request.client else 'unknown'}")
     logger.info(f"Headers: {dict(request.headers)}")
 
-    response = FileResponse("static/index.html")
+    response = FileResponse(str(STATIC_DIR / "index.html"))
 
     # Add headers for ngrok compatibility
     response.headers["X-Frame-Options"] = "ALLOWALL"

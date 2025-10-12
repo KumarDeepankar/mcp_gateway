@@ -1,0 +1,80 @@
+INFO:     Started server process [15221]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8023 (Press CTRL+C to quit)
+Starting Agentic Search Service on 127.0.0.1:8023
+Make sure Ollama is running with llama3.2:latest model
+Make sure MCP Registry Discovery is running on port 8021
+INFO:     127.0.0.1:58850 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58850 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58850 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58850 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58860 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58876 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58886 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58851 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58851 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58944 - "POST /auth/login/local HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59076 - "POST /auth/login/local HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59076 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59079 - "GET /static/js/script.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:59076 - "GET /static/css/style.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:59079 - "GET /auth/user HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59076 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59085 - "POST /auth/logout HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59085 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59085 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59085 - "GET /auth/oauth/google HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:59085 - "GET /auth/callback?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTI5MTgxMDgxMzc2NzgyMDYwMzMiLCJlbWFpbCI6ImRlZXBhbmthcjMyQGdtYWlsLmNvbSIsIm5hbWUiOiJLdW1hciBEZWVwYW5rYXIiLCJwcm92aWRlciI6Imdvb2dsZSIsImV4cCI6MTc2MDI2OTE0NCwiaWF0IjoxNzYwMjQwMzQ0LCJ0eXBlIjoiYWNjZXNzIn0.FIH9r-asQAGcmrM8550X7JPlu4j9U6DTofCqwQB7v3c HTTP/1.1" 302 Found
+INFO:     127.0.0.1:59085 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59087 - "GET /auth/user HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59085 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59085 - "POST /auth/logout HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59085 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59085 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59109 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59109 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59111 - "GET /auth/oauth/google HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:59114 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59114 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "POST /auth/login/local HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59122 - "GET /static/js/script.js HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:59118 - "GET /static/css/style.css HTTP/1.1" 304 Not Modified
+INFO:     127.0.0.1:59122 - "GET /auth/user HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "POST /auth/logout HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "GET /auth/login HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59118 - "GET /auth/providers HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59127 - "GET /auth/oauth/google HTTP/1.1" 307 Temporary Redirect
+INFO:     127.0.0.1:59127 - "GET /auth/callback?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMTI5MTgxMDgxMzc2NzgyMDYwMzMiLCJlbWFpbCI6ImRlZXBhbmthcjMyQGdtYWlsLmNvbSIsIm5hbWUiOiJLdW1hciBEZWVwYW5rYXIiLCJwcm92aWRlciI6Imdvb2dsZSIsImV4cCI6MTc2MDI2OTIzNSwiaWF0IjoxNzYwMjQwNDM1LCJ0eXBlIjoiYWNjZXNzIn0.ZCTpjVUOzT2Tcc7ofL4sLIe9uz5zHajDDnh7cX2LykU HTTP/1.1" 302 Found
+INFO:     127.0.0.1:59127 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59141 - "GET /static/js/script.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59127 - "GET /static/css/style.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59141 - "GET /auth/user HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59127 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59182 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59183 - "GET /auth/user HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59182 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59195 - "GET /tools HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [15221]

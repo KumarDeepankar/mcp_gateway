@@ -146,43 +146,44 @@ async def set_tool_roles(request: Request, server_id: str, tool_name: str, reque
         if not role:
             raise HTTPException(status_code=404, detail=f"Role not found: {role_id}")
 
-    success = database.set_role_tools_for_server(role_id, server_id, [tool_name]) if len(role_ids) == 1 else True
+    # STEP 1: Clear existing permissions for this tool from ALL roles
+    # This ensures a clean state before applying new permissions
+    all_roles = database.get_all_roles()
+    for role in all_roles:
+        existing_tools = database.get_role_tools_by_server(role['role_id'], server_id)
+        if tool_name in existing_tools:
+            # Remove this tool from the role's permissions
+            updated_tools = [t for t in existing_tools if t != tool_name]
+            database.set_role_tools_for_server(role['role_id'], server_id, updated_tools)
+            logger.debug(f"Removed tool '{tool_name}' from role '{role['role_id']}'")
 
-    # For multiple roles, we need to update each role's permissions
-    if len(role_ids) > 1:
-        # First, clear existing permissions for this tool from all roles
-        all_roles = database.get_all_roles()
-        for role in all_roles:
-            existing_tools = database.get_role_tools_by_server(role['role_id'], server_id)
-            if tool_name in existing_tools:
-                # Remove this tool from the role's permissions
-                updated_tools = [t for t in existing_tools if t != tool_name]
-                database.set_role_tools_for_server(role['role_id'], server_id, updated_tools)
+    # STEP 2: Add permissions for the selected roles (if any)
+    # If role_ids is empty, this will effectively clear all role assignments
+    for role_id in role_ids:
+        existing_tools = database.get_role_tools_by_server(role_id, server_id)
+        if tool_name not in existing_tools:
+            updated_tools = existing_tools + [tool_name]
+            database.set_role_tools_for_server(role_id, server_id, updated_tools)
+            logger.debug(f"Added tool '{tool_name}' to role '{role_id}'")
 
-        # Then add permissions for the selected roles
-        for role_id in role_ids:
-            existing_tools = database.get_role_tools_by_server(role_id, server_id)
-            if tool_name not in existing_tools:
-                updated_tools = existing_tools + [tool_name]
-                database.set_role_tools_for_server(role_id, server_id, updated_tools)
-
-    if success:
-        audit_logger.log_event(
-            AuditEventType.CONFIG_UPDATED,
-            user_id=user.user_id,
-            user_email=user.email,
-            resource_type="tool_role_access",
-            resource_id=f"{server_id}/{tool_name}",
-            details={
-                "action": "set_roles",
-                "server_id": server_id,
-                "tool_name": tool_name,
-                "role_count": len(role_ids)
-            }
-        )
+    # Log the audit event
+    audit_logger.log_event(
+        AuditEventType.CONFIG_UPDATED,
+        user_id=user.user_id,
+        user_email=user.email,
+        resource_type="tool_role_access",
+        resource_id=f"{server_id}/{tool_name}",
+        details={
+            "action": "set_roles",
+            "server_id": server_id,
+            "tool_name": tool_name,
+            "role_count": len(role_ids),
+            "role_ids": role_ids
+        }
+    )
 
     return JSONResponse(content={
-        "success": success,
+        "success": True,
         "message": f"Set {len(role_ids)} role(s) for tool {tool_name}"
     })
 
