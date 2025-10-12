@@ -7,3 +7,4 @@ cryptography
 pydantic
 python-multipart
 ldap3
+python-dotenv

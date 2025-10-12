@@ -389,17 +389,48 @@ class OAuthProviderManager:
 
 class JWTManager:
     """
-    Manages JWT tokens for MCP gateway authentication
-    Issues short-lived access tokens after OAuth validation
+    Manages JWT tokens for MCP gateway authentication using RS256 (asymmetric).
+
+    RS256 provides industry-standard microservices authentication:
+    - Private key for signing (kept secure in auth server)
+    - Public key for validation (distributed via JWKS endpoint)
+    - No shared secrets between services
     """
 
-    def __init__(self, secret_key: Optional[str] = None, algorithm: str = "HS256"):
-        self.secret_key = secret_key or secrets.token_urlsafe(64)
-        self.algorithm = algorithm
+    def __init__(self, rsa_private_key: str, rsa_public_key: str, key_id: str):
+        """
+        Initialize JWT manager with RSA keys for RS256 signing.
+
+        Args:
+            rsa_private_key: RSA private key in PEM format (required)
+            rsa_public_key: RSA public key in PEM format (required)
+            key_id: Key ID (kid) for JWKS (required)
+
+        Raises:
+            ValueError: If any required parameter is missing
+        """
+        if not rsa_private_key or not rsa_public_key or not key_id:
+            raise ValueError("RS256 requires rsa_private_key, rsa_public_key, and key_id")
+
+        self.algorithm = "RS256"
         self.token_expiry_minutes = 480  # 8 hours (for development/admin sessions)
+        self.rsa_private_key = rsa_private_key
+        self.rsa_public_key = rsa_public_key
+        self.key_id = key_id
+
+        logger.info(f"JWTManager initialized with RS256 (kid: {key_id})")
 
     def create_access_token(self, user_info: UserInfo, expires_delta: Optional[timedelta] = None) -> str:
-        """Create JWT access token"""
+        """
+        Create RS256 JWT access token with kid header.
+
+        Args:
+            user_info: User information to encode in token
+            expires_delta: Optional custom expiration time
+
+        Returns:
+            Signed JWT token string
+        """
         if expires_delta is None:
             expires_delta = timedelta(minutes=self.token_expiry_minutes)
 
@@ -415,27 +446,122 @@ class JWTManager:
             "type": "access"
         }
 
-        token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
-        logger.info(f"Created access token for {user_info.email}")
+        # Add kid header for JWKS key rotation
+        headers = {"kid": self.key_id}
+
+        # Sign with RSA private key
+        token = jwt.encode(payload, self.rsa_private_key, algorithm=self.algorithm, headers=headers)
+
+        logger.info(f"Created RS256 access token for {user_info.email} (kid: {self.key_id})")
         return token
 
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
-        """Verify and decode JWT token"""
+        """
+        Verify and decode RS256 JWT token.
+
+        Args:
+            token: JWT token string
+
+        Returns:
+            Decoded payload if valid, None if invalid
+        """
         try:
-            payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
+            payload = jwt.decode(token, self.rsa_public_key, algorithms=[self.algorithm])
             return payload
         except JWTError as e:
-            logger.error(f"Token verification failed: {e}")
+            logger.error(f"RS256 token verification failed: {e}")
             return None
+
+    def reload_keys(self, rsa_private_key: str, rsa_public_key: str, key_id: str, token_expiry_minutes: int = 480):
+        """
+        Reload RSA keys in-place (for key rotation).
+        Updates the existing instance instead of creating a new one.
+
+        Args:
+            rsa_private_key: New RSA private key in PEM format
+            rsa_public_key: New RSA public key in PEM format
+            key_id: New Key ID (kid) for JWKS
+            token_expiry_minutes: Token expiry time in minutes
+
+        Raises:
+            ValueError: If any required parameter is missing
+        """
+        if not rsa_private_key or not rsa_public_key or not key_id:
+            raise ValueError("RS256 requires rsa_private_key, rsa_public_key, and key_id")
+
+        self.rsa_private_key = rsa_private_key
+        self.rsa_public_key = rsa_public_key
+        self.key_id = key_id
+        self.token_expiry_minutes = token_expiry_minutes
+
+        logger.info(f"JWT manager keys reloaded (kid: {key_id})")
 
 
 # Singleton instances
 oauth_provider_manager = OAuthProviderManager()
 
-# Initialize JWTManager with environment variable (must match agentic_search)
-JWT_SECRET = os.getenv("JWT_SECRET")
-if not JWT_SECRET:
-    logger.warning("JWT_SECRET not found in environment. Generating random secret. This should only happen in development.")
-    JWT_SECRET = secrets.token_urlsafe(64)
+# Initialize JWTManager with config from database (shared with all registered services)
+def _initialize_jwt_manager():
+    """
+    Initialize JWT manager with RS256 keys from database.
 
-jwt_manager = JWTManager(secret_key=JWT_SECRET, algorithm="HS256")
+    Automatically generates RSA keys if not found.
+
+    Returns:
+        JWTManager: Configured JWT manager instance with RS256
+
+    Raises:
+        ValueError: If RSA key generation fails
+    """
+    from .config import config_manager
+    system_config = config_manager.get_system_config()
+
+    # Check if RSA keys are configured
+    if not system_config.rsa_private_key or not system_config.rsa_public_key:
+        logger.warning("RSA keys not found. Auto-generating RSA key pair...")
+        # Auto-generate RSA keys
+        config_manager.generate_rsa_keys()
+        # Reload config
+        system_config = config_manager.get_system_config()
+
+    # Create JWT manager with RS256
+    jwt_mgr = JWTManager(
+        rsa_private_key=system_config.rsa_private_key,
+        rsa_public_key=system_config.rsa_public_key,
+        key_id=system_config.jwt_key_id
+    )
+    jwt_mgr.token_expiry_minutes = system_config.jwt_expiry_minutes
+
+    logger.info(f"JWT manager initialized with RS256 (kid: {system_config.jwt_key_id})")
+    return jwt_mgr
+
+jwt_manager = _initialize_jwt_manager()
+
+
+def reload_jwt_manager():
+    """
+    Reload JWT manager after RSA keys change.
+
+    This should be called after generating new RSA keys to ensure
+    the jwt_manager uses the updated keys from the database.
+
+    Uses in-place reload to update the existing singleton instance,
+    so all existing references to jwt_manager will see the new keys.
+
+    Returns:
+        JWTManager: The same JWT manager instance with updated keys
+    """
+    from .config import config_manager
+    logger.info("Reloading JWT manager with updated RSA keys...")
+
+    system_config = config_manager.get_system_config()
+
+    # Reload keys in-place (updates the existing singleton instance)
+    jwt_manager.reload_keys(
+        rsa_private_key=system_config.rsa_private_key,
+        rsa_public_key=system_config.rsa_public_key,
+        key_id=system_config.jwt_key_id,
+        token_expiry_minutes=system_config.jwt_expiry_minutes
+    )
+
+    return jwt_manager

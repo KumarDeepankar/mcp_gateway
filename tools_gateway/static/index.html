@@ -433,8 +433,130 @@
 
                 <!-- Configuration Tab -->
                 <div id="configuration" class="tab-content">
-                    <!-- Health Monitoring Configuration -->
+                    <!-- System Configuration -->
                     <div class="test-panel">
+                        <div class="test-panel-header">
+                            <div class="panel-title">
+                                <i class="fas fa-cogs"></i>
+                                System Configuration
+                            </div>
+                            <div id="systemConfigStatus" class="test-status pending">Not Loaded</div>
+                        </div>
+                        <div class="test-panel-body">
+                            <div class="alert alert-info" style="margin-bottom: 20px;">
+                                <i class="fas fa-info-circle"></i>
+                                <strong>Centralized Configuration</strong>
+                                <p>All settings are stored in the database. Registered services fetch public keys from JWKS endpoint for token validation - no shared secrets.</p>
+                            </div>
+
+                            <!-- JWT Configuration -->
+                            <h4 class="form-section-title">
+                                <i class="fas fa-key"></i>
+                                JWT Authentication Settings (RS256/JWKS)
+                            </h4>
+                            <div class="alert alert-success" style="margin-bottom: 20px;">
+                                <i class="fas fa-shield-alt"></i>
+                                <strong>Industry Standard Authentication</strong>
+                                <p>Using RS256 asymmetric keys with JWKS endpoint (RFC 7517). No shared secrets - services validate tokens using public keys.</p>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">RSA Key ID (kid)</label>
+                                    <input type="text" class="form-control" id="jwtKeyId" placeholder="Key ID" readonly style="background-color: #f5f5f5;">
+                                    <small class="form-text">Unique identifier for key rotation (auto-generated)</small>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Algorithm</label>
+                                    <input type="text" class="form-control" value="RS256" readonly style="background-color: #f5f5f5;">
+                                    <small class="form-text">RSA Signature with SHA-256 (asymmetric)</small>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Token Expiry (minutes)</label>
+                                    <input type="number" class="form-control" id="jwtExpiryMinutes" min="5" value="480">
+                                    <small class="form-text">How long tokens remain valid</small>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">JWKS Endpoint</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="text" class="form-control" value="/.well-known/jwks.json" readonly style="background-color: #f5f5f5; flex: 1;">
+                                        <button class="btn btn-sm btn-outline" onclick="window.open('/.well-known/jwks.json', '_blank')">
+                                            <i class="fas fa-external-link-alt"></i> View
+                                        </button>
+                                    </div>
+                                    <small class="form-text">Public keys for token validation (industry standard)</small>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <button class="btn btn-sm btn-warning" onclick="generateRSAKeys()">
+                                        <i class="fas fa-key"></i> Generate New RSA Keys
+                                    </button>
+                                    <small class="form-text" style="display: block; margin-top: 8px; color: #ff6b6b;">
+                                        <i class="fas fa-exclamation-triangle"></i> Warning: This will invalidate all existing tokens
+                                    </small>
+                                </div>
+                            </div>
+
+                            <div class="form-divider"></div>
+
+                            <!-- Logging Configuration -->
+                            <h4 class="form-section-title">
+                                <i class="fas fa-file-alt"></i>
+                                Logging Configuration
+                            </h4>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label class="form-label">Log Level</label>
+                                    <select class="form-control" id="logLevel">
+                                        <option value="DEBUG">DEBUG</option>
+                                        <option value="INFO">INFO</option>
+                                        <option value="WARNING">WARNING</option>
+                                        <option value="ERROR">ERROR</option>
+                                    </select>
+                                    <small class="form-text">Application logging level (restart required)</small>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <button class="btn btn-primary" onclick="saveSystemConfig()">
+                                    <i class="fas fa-save"></i>
+                                    Save System Configuration
+                                </button>
+                                <button class="btn btn-outline" onclick="loadSystemConfig()">
+                                    <i class="fas fa-sync"></i>
+                                    Reload
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Registered Services -->
+                    <div class="test-panel" style="margin-top: 20px;">
+                        <div class="test-panel-header">
+                            <div class="panel-title">
+                                <i class="fas fa-network-wired"></i>
+                                Registered Services
+                            </div>
+                            <button class="btn btn-sm btn-primary" onclick="showAddServiceModal()">
+                                <i class="fas fa-plus"></i> Register Service
+                            </button>
+                        </div>
+                        <div class="test-panel-body">
+                            <div class="alert alert-info" style="margin-bottom: 20px;">
+                                <i class="fas fa-info-circle"></i>
+                                <strong>Service Registration</strong>
+                                <p>Register external services to use this gateway's authentication and authorization system. Services fetch public keys from JWKS endpoint for token validation.</p>
+                            </div>
+                            <div id="registeredServicesContainer">
+                                <div class="loading">Loading registered services...</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Health Monitoring Configuration -->
+                    <div class="test-panel" style="margin-top: 20px;">
                         <div class="test-panel-header">
                             <div class="panel-title">
                                 <i class="fas fa-heartbeat"></i>
@@ -1152,6 +1274,60 @@
         </button>
     </div>
 
+    <!-- Add Service Modal -->
+    <div id="addServiceModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-plus"></i>
+                    Register New Service
+                </div>
+                <button class="modal-close" onclick="closeModal('addServiceModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="addServiceForm">
+                    <div class="form-group">
+                        <label class="form-label">Service ID *</label>
+                        <input type="text" class="form-control" id="serviceId" placeholder="agentic_search" required>
+                        <small class="form-text">Unique identifier (lowercase, no spaces)</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Service Name *</label>
+                        <input type="text" class="form-control" id="serviceName" placeholder="Agentic Search" required>
+                        <small class="form-text">Human-readable service name</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Service URL *</label>
+                        <input type="url" class="form-control" id="serviceUrl" placeholder="http://localhost:8023" required>
+                        <small class="form-text">Base URL where the service is running</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Description</label>
+                        <textarea class="form-control" id="serviceDescription" rows="2" placeholder="Brief description..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="serviceEnabled" checked>
+                            Enable this service
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="serviceRequiresAuth" checked>
+                            Requires authentication
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('addServiceModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveNewService()">
+                    <i class="fas fa-save"></i> Register Service
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Change Password Modal -->
     <div id="changePasswordModal" class="modal">
         <div class="modal-content">
@@ -1190,5 +1366,6 @@
     <script src="static/js/admin-security.js?v=9"></script>
     <script src="static/js/admin-ad-fetched.js?v=9"></script>
     <script src="static/js/auth.js?v=9"></script>
+    <script src="static/js/system-config.js?v=1"></script>
 </body>
 </html>

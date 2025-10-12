@@ -252,15 +252,18 @@ async def login_redirect(request: Request, provider_id: str, redirect_to: str):
     then receive them back with a JWT token.
     """
     # Validate redirect_to is an allowed origin
-    import os
     from urllib.parse import urlparse
+    from tools_gateway import config_manager
 
-    allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:8023,http://localhost:8021").split(",")
+    # Get allowed origins from config manager (database-backed configuration)
+    origin_config = config_manager.get_origin_config()
+    allowed_origins = origin_config.allowed_origins
+
     parsed_redirect = urlparse(redirect_to)
     redirect_origin = f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
 
     if redirect_origin not in allowed_origins:
-        logger.warning(f"Attempted redirect to unauthorized origin: {redirect_origin}")
+        logger.warning(f"Attempted redirect to unauthorized origin: {redirect_origin}. Allowed: {allowed_origins}")
         raise HTTPException(status_code=403, detail="Invalid redirect URL - not in allowed origins")
 
     # Build redirect URI for OAuth callback

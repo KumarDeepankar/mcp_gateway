@@ -23,23 +23,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application code
 COPY . .
 
-# Build-time arguments - can be overridden during build
+# Build-time arguments - only essential variables
+# These will be set via environment variables at runtime in ECS
+ARG TOOLS_GATEWAY_URL=http://localhost:8021
 ARG MCP_GATEWAY_URL=http://localhost:8021
-ARG AGENTIC_SEARCH_ORIGIN=http://localhost:8023
-ARG HOST=0.0.0.0
-ARG PORT=8023
-ARG OLLAMA_HOST=http://localhost:11434
-ARG OLLAMA_MODEL=llama3.2:latest
-ARG LOG_LEVEL=INFO
 
 # Set runtime environment variables from build args
-ENV MCP_GATEWAY_URL=${MCP_GATEWAY_URL} \
-    AGENTIC_SEARCH_ORIGIN=${AGENTIC_SEARCH_ORIGIN} \
-    HOST=${HOST} \
-    PORT=${PORT} \
-    OLLAMA_HOST=${OLLAMA_HOST} \
-    OLLAMA_MODEL=${OLLAMA_MODEL} \
-    LOG_LEVEL=${LOG_LEVEL}
+# These are defaults - override them at runtime with actual URLs
+ENV TOOLS_GATEWAY_URL=${TOOLS_GATEWAY_URL} \
+    MCP_GATEWAY_URL=${MCP_GATEWAY_URL}
 
 # Create a non-root user for security
 RUN useradd --create-home --shell /bin/bash app && \
@@ -50,7 +42,7 @@ USER app
 EXPOSE 8023
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8023/health || exit 1
 
 # Default command

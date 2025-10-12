@@ -20,7 +20,12 @@ from ollama_query_agent.graph_definition import compiled_agent as search_compile
 from ollama_query_agent.mcp_tool_client import mcp_tool_client
 
 # Import auth modules
-from auth import get_current_user, require_auth, get_jwt_token
+from auth import (
+    get_current_user,
+    require_auth,
+    get_jwt_token,
+    fetch_jwks_from_gateway
+)
 from auth_routes import router as auth_router
 from debug_auth import router as debug_auth_router
 
@@ -33,6 +38,30 @@ app = FastAPI(
 # Include authentication routes
 app.include_router(auth_router)
 app.include_router(debug_auth_router)
+
+
+# Startup event to fetch JWKS from tools_gateway
+@app.on_event("startup")
+async def startup_event():
+    """
+    Fetch JWKS (JSON Web Key Set) from tools_gateway on startup.
+
+    JWKS contains public keys for RS256 token validation.
+    This is the industry-standard approach for microservices JWT authentication.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # Fetch JWKS (RS256 - Industry Standard)
+    logger.info("Fetching JWKS (RS256 public keys) from tools_gateway...")
+    jwks_success = fetch_jwks_from_gateway()
+
+    if jwks_success:
+        logger.info("✓ JWKS fetched successfully")
+        logger.info("🔐 Authentication ready: RS256 only (industry standard)")
+    else:
+        logger.error("⚠ Failed to fetch JWKS from gateway - authentication will not work!")
+        logger.error("   Please ensure tools_gateway is running and has generated RSA keys")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
