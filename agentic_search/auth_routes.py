@@ -23,7 +23,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 # Service URLs from environment
+# TOOLS_GATEWAY_URL: For server-to-server API calls (JWKS fetching, etc.)
 TOOLS_GATEWAY_URL = os.getenv("TOOLS_GATEWAY_URL", "http://localhost:8021")
+
+# TOOLS_GATEWAY_PUBLIC_URL: For browser redirects (OAuth flows)
+# In Docker: Use localhost for browser access
+# In ECS: Use the actual ALB URL
+TOOLS_GATEWAY_PUBLIC_URL = os.getenv("TOOLS_GATEWAY_PUBLIC_URL", "http://localhost:8021")
+
+# AGENTIC_SEARCH_URL: This service's public URL for OAuth callbacks
 AGENTIC_SEARCH_URL = os.getenv("AGENTIC_SEARCH_URL", "http://localhost:8023")
 
 
@@ -520,15 +528,18 @@ async def login_page():
 async def oauth_login(provider_id: str):
     """
     Initiate OAuth login flow via tools_gateway.
-    Redirects user to tools_gateway for authentication.
+    Redirects user's BROWSER to tools_gateway for authentication.
+    Uses TOOLS_GATEWAY_PUBLIC_URL (not TOOLS_GATEWAY_URL) because this is a browser redirect.
     """
     # Build callback URL for this service
     callback_url = f"{AGENTIC_SEARCH_URL}/auth/callback"
 
     # Redirect to tools_gateway OAuth with redirect_to parameter
-    login_url = f"{TOOLS_GATEWAY_URL}/auth/login-redirect?provider_id={provider_id}&redirect_to={callback_url}"
+    # Use PUBLIC URL because the user's browser needs to access this
+    login_url = f"{TOOLS_GATEWAY_PUBLIC_URL}/auth/login-redirect?provider_id={provider_id}&redirect_to={callback_url}"
 
     logger.info(f"Initiating OAuth login for provider: {provider_id}")
+    logger.info(f"Redirecting to: {login_url}")
     return RedirectResponse(url=login_url)
 
 

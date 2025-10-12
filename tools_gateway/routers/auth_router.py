@@ -261,8 +261,31 @@ async def login_redirect(request: Request, provider_id: str, redirect_to: str):
 
     parsed_redirect = urlparse(redirect_to)
     redirect_origin = f"{parsed_redirect.scheme}://{parsed_redirect.netloc}"
+    redirect_hostname = parsed_redirect.hostname  # Just the hostname without port
 
-    if redirect_origin not in allowed_origins:
+    # Check if redirect is allowed (supports both short and full format)
+    # Short format: "localhost" matches any http://localhost:* or https://localhost:*
+    # Full format: "http://localhost:8023" matches exactly
+    is_allowed = False
+    for allowed in allowed_origins:
+        # Check exact match (full URL format)
+        if redirect_origin == allowed:
+            is_allowed = True
+            break
+        # Check hostname-only match (short format like "localhost")
+        if redirect_hostname == allowed:
+            is_allowed = True
+            break
+        # Check if allowed origin is a full URL and matches
+        try:
+            parsed_allowed = urlparse(allowed if '://' in allowed else f'http://{allowed}')
+            if redirect_hostname == parsed_allowed.hostname:
+                is_allowed = True
+                break
+        except:
+            pass
+
+    if not is_allowed:
         logger.warning(f"Attempted redirect to unauthorized origin: {redirect_origin}. Allowed: {allowed_origins}")
         raise HTTPException(status_code=403, detail="Invalid redirect URL - not in allowed origins")
 

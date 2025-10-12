@@ -335,8 +335,9 @@ async def chat_endpoint(
 if __name__ == "__main__":
     import uvicorn
 
-    host = os.getenv("HOST", "127.0.0.1")
-    port = int(os.getenv("PORT", "8023"))
+    # Bind to 0.0.0.0 to accept connections from outside the container
+    host = "0.0.0.0"
+    port = 8023
 
     print(f"Starting Agentic Search Service on {host}:{port}")
     print("Make sure Ollama is running with llama3.2:latest model")
