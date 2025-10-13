@@ -1362,6 +1362,48 @@
         </div>
     </div>
 
+    <!-- Tool Role Assignment Modal -->
+    <div id="toolRoleAssignmentModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-user-shield"></i>
+                    Assign Access Roles
+                </div>
+                <button class="modal-close" onclick="closeToolRoleModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tool-role-modal-info">
+                    <div class="form-group">
+                        <label class="form-label">Tool Name</label>
+                        <input type="text" class="form-control" id="modalToolName" readonly>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Server</label>
+                        <input type="text" class="form-control" id="modalToolServer" readonly>
+                    </div>
+                </div>
+
+                <div class="form-divider"></div>
+
+                <h4 class="form-section-title">
+                    <i class="fas fa-key"></i>
+                    Select Roles
+                </h4>
+
+                <div class="tool-role-modal-roles" id="toolRoleModalRolesList">
+                    <!-- Roles will be dynamically loaded here -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeToolRoleModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveToolRolesFromModal()">
+                    <i class="fas fa-save"></i> Save Roles
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script src="static/js/mcp-portal.js?v=9"></script>
     <script src="static/js/admin-security.js?v=9"></script>
     <script src="static/js/admin-ad-fetched.js?v=9"></script>

@@ -606,44 +606,14 @@ async function displayTools(tools) {
                 <div class="col-version">
                     ${availableRoles.length > 0 ? `
                         <div class="tool-roles-container" id="roles-container-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}">
-                            <div class="tool-roles-display" onclick="toggleToolRolesDropdown('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
-                                <div class="selected-roles-badges">
+                            <button class="tool-roles-button" onclick="openToolRoleModal('${serverId}', '${toolName.replace(/'/g, '\\\'')}', '${tool._server_url || 'Unknown Server'}')">
+                                <div class="tool-roles-button-content">
                                     ${accessRoles.length > 0 ?
                                         accessRoles.map(r => `<span class="role-badge-small">${r.role_name}</span>`).join('') :
-                                        '<span class="placeholder-text">Click to assign roles</span>'
+                                        '<span class="placeholder-text"><i class="fas fa-user-shield"></i> Assign Roles</span>'
                                     }
                                 </div>
-                                <i class="fas fa-chevron-down dropdown-icon"></i>
-                            </div>
-                            <div class="tool-roles-dropdown" id="dropdown-${serverId}-${toolName.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none;">
-                                <div class="roles-dropdown-header">
-                                    <strong>Assign Access Roles</strong>
-                                    <button class="close-dropdown" onclick="closeToolRolesDropdown('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
-                                        <i class="fas fa-times"></i>
-                                    </button>
-                                </div>
-                                <div class="roles-checklist">
-                                    ${availableRoles.map(role => `
-                                        <label class="role-checkbox-item">
-                                            <input type="checkbox" value="${role.role_id}"
-                                                   ${selectedRoleIds.includes(role.role_id) ? 'checked' : ''}
-                                                   onchange="handleRoleCheckboxChange('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
-                                            <span class="role-checkbox-label">
-                                                <strong>${role.role_name}</strong>
-                                                <small>${role.description || 'No description'}</small>
-                                            </span>
-                                        </label>
-                                    `).join('')}
-                                </div>
-                                <div class="roles-dropdown-footer">
-                                    <button class="btn btn-sm btn-outline" onclick="closeToolRolesDropdown('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
-                                        Cancel
-                                    </button>
-                                    <button class="btn btn-sm btn-primary" onclick="saveToolRoles('${serverId}', '${toolName.replace(/'/g, '\\\'')}')">
-                                        <i class="fas fa-save"></i> Save
-                                    </button>
-                                </div>
-                            </div>
+                            </button>
                         </div>
                     ` : `
                         <div style="font-size: 0.75rem; color: var(--text-muted); padding: 4px;">
@@ -1460,62 +1430,57 @@ async function updateToolOAuthProviders(serverId, toolName) {
     }
 }
 
-// Tool Roles Dropdown Functions
-function toggleToolRolesDropdown(serverId, toolName) {
-    const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
-    const dropdown = document.getElementById(`dropdown-${serverId}-${toolId}`);
+// Tool Role Assignment Modal Functions
+let currentToolRoleModalData = null;
 
-    // Close all other dropdowns
-    document.querySelectorAll('.tool-roles-dropdown').forEach(d => {
-        if (d.id !== `dropdown-${serverId}-${toolId}`) {
-            d.style.display = 'none';
-        }
-    });
+function openToolRoleModal(serverId, toolName, serverUrl) {
+    // Store current tool data
+    currentToolRoleModalData = { serverId, toolName, serverUrl };
 
-    // Toggle this dropdown
-    if (dropdown) {
-        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
-    }
-}
+    // Set tool information in modal
+    document.getElementById('modalToolName').value = toolName;
+    document.getElementById('modalToolServer').value = serverUrl;
 
-function closeToolRolesDropdown(serverId, toolName) {
-    const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
-    const dropdown = document.getElementById(`dropdown-${serverId}-${toolId}`);
-    if (dropdown) {
-        dropdown.style.display = 'none';
-    }
-}
+    // Get current tool's access roles
+    const tool = discoveredTools.find(t => t.name === toolName && t._server_id === serverId);
+    const currentRoleIds = tool ? (tool._access_roles || []).map(r => r.role_id) : [];
 
-function handleRoleCheckboxChange(serverId, toolName) {
-    // Just update the visual state, actual save happens when user clicks Save button
-    const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
-    const dropdown = document.getElementById(`dropdown-${serverId}-${toolId}`);
-    if (!dropdown) return;
-
-    // Get all checked checkboxes
-    const checkedBoxes = dropdown.querySelectorAll('input[type="checkbox"]:checked');
-    const displayDiv = document.querySelector(`#roles-container-${serverId}-${toolId} .selected-roles-badges`);
-
-    if (!displayDiv) return;
-
-    // Update the display with selected roles
-    if (checkedBoxes.length > 0) {
-        displayDiv.innerHTML = Array.from(checkedBoxes).map(cb => {
-            const label = cb.closest('.role-checkbox-item').querySelector('strong').textContent;
-            return `<span class="role-badge-small">${label}</span>`;
-        }).join('');
+    // Populate roles checklist
+    const rolesList = document.getElementById('toolRoleModalRolesList');
+    if (availableRoles.length === 0) {
+        rolesList.innerHTML = `
+            <div class="empty-state" style="padding: 2rem;">
+                <i class="fas fa-exclamation-circle"></i>
+                <p>No roles available. Please create roles first.</p>
+            </div>
+        `;
     } else {
-        displayDiv.innerHTML = '<span class="placeholder-text">Click to assign roles</span>';
+        rolesList.innerHTML = availableRoles.map(role => `
+            <label class="tool-role-modal-checkbox">
+                <input type="checkbox" value="${role.role_id}" ${currentRoleIds.includes(role.role_id) ? 'checked' : ''}>
+                <div class="tool-role-modal-checkbox-content">
+                    <strong>${role.role_name}</strong>
+                    <small>${role.description || 'No description'}</small>
+                </div>
+            </label>
+        `).join('');
     }
+
+    // Show modal
+    document.getElementById('toolRoleAssignmentModal').style.display = 'block';
 }
 
-async function saveToolRoles(serverId, toolName) {
-    const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
-    const dropdown = document.getElementById(`dropdown-${serverId}-${toolId}`);
+function closeToolRoleModal() {
+    document.getElementById('toolRoleAssignmentModal').style.display = 'none';
+    currentToolRoleModalData = null;
+}
 
-    if (!dropdown) return;
+async function saveToolRolesFromModal() {
+    if (!currentToolRoleModalData) return;
 
-    const checkedBoxes = dropdown.querySelectorAll('input[type="checkbox"]:checked');
+    const { serverId, toolName } = currentToolRoleModalData;
+    const rolesList = document.getElementById('toolRoleModalRolesList');
+    const checkedBoxes = rolesList.querySelectorAll('input[type="checkbox"]:checked');
     const selectedRoleIds = Array.from(checkedBoxes).map(cb => cb.value);
 
     // Get auth token from localStorage
@@ -1542,28 +1507,35 @@ async function saveToolRoles(serverId, toolName) {
 
         if (result.success) {
             showAlert(`Access roles updated for tool: ${toolName}`, 'success');
-            closeToolRolesDropdown(serverId, toolName);
+            closeToolRoleModal();
 
             // Update the underlying tool data in discoveredTools array
             const toolIndex = discoveredTools.findIndex(t => t.name === toolName && t._server_id === serverId);
             if (toolIndex !== -1) {
                 // Update the _access_roles with the new selection
-                discoveredTools[toolIndex]._access_roles = Array.from(checkedBoxes).map(cb => ({
-                    role_id: cb.value,
-                    role_name: cb.closest('.role-checkbox-item').querySelector('strong').textContent,
-                    description: cb.closest('.role-checkbox-item').querySelector('small').textContent
-                }));
+                discoveredTools[toolIndex]._access_roles = Array.from(checkedBoxes).map(cb => {
+                    const content = cb.nextElementSibling;
+                    return {
+                        role_id: cb.value,
+                        role_name: content.querySelector('strong').textContent,
+                        description: content.querySelector('small').textContent
+                    };
+                });
             }
 
-            // Update the visual display
-            const displayDiv = document.querySelector(`#roles-container-${serverId}-${toolId} .selected-roles-badges`);
-            if (displayDiv && checkedBoxes.length > 0) {
-                displayDiv.innerHTML = Array.from(checkedBoxes).map(cb => {
-                    const label = cb.closest('.role-checkbox-item').querySelector('strong').textContent;
-                    return `<span class="role-badge-small">${label}</span>`;
-                }).join('');
-            } else if (displayDiv) {
-                displayDiv.innerHTML = '<span class="placeholder-text">Click to assign roles</span>';
+            // Update the visual display in the table
+            const toolId = toolName.replace(/[^a-zA-Z0-9]/g, '_');
+            const buttonContent = document.querySelector(`#roles-container-${serverId}-${toolId} .tool-roles-button-content`);
+
+            if (buttonContent) {
+                if (checkedBoxes.length > 0) {
+                    buttonContent.innerHTML = Array.from(checkedBoxes).map(cb => {
+                        const label = cb.nextElementSibling.querySelector('strong').textContent;
+                        return `<span class="role-badge-small">${label}</span>`;
+                    }).join('');
+                } else {
+                    buttonContent.innerHTML = '<span class="placeholder-text"><i class="fas fa-user-shield"></i> Assign Roles</span>';
+                }
             }
         } else {
             showAlert(`Failed to update access roles: ${result.message || 'Unknown error'}`, 'error');
@@ -1573,15 +1545,6 @@ async function saveToolRoles(serverId, toolName) {
         showAlert('Failed to update access roles: ' + error.message, 'error');
     }
 }
-
-// Close dropdowns when clicking outside
-document.addEventListener('click', function(event) {
-    if (!event.target.closest('.tool-roles-container')) {
-        document.querySelectorAll('.tool-roles-dropdown').forEach(dropdown => {
-            dropdown.style.display = 'none';
-        });
-    }
-});
 // ===== Configuration Management Functions =====
 
 // Load all configuration
