@@ -125,9 +125,21 @@ function switchTab(tabName) {
         'servers': 'MCP Servers',
         'tools': 'Tool Discovery',
         'capabilities': 'Tool Capabilities',
-        'testing': 'Tool Testing'
+        'testing': 'Tool Testing',
+        'configuration': 'Configuration',
+        'oauth': 'OAuth Providers',
+        'users': 'Users & Roles',
+        'audit': 'Audit Logs'
     };
     document.querySelector('.header-title').textContent = titles[tabName] || 'Dashboard';
+
+    // Show/hide header actions based on tab
+    const headerActions = document.querySelector('.header-actions');
+    if (tabName === 'servers') {
+        headerActions.style.display = 'flex';
+    } else {
+        headerActions.style.display = 'none';
+    }
 
     currentTab = tabName;
 
