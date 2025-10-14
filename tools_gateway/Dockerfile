@@ -13,12 +13,12 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python dependencies
-COPY tools_gateway/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (copying from project root)
-# The tools_gateway/ directory already contains __init__.py and static/
-COPY tools_gateway/ ./tools_gateway/
+# Copy application code
+# The build context is tools_gateway/, so copy everything to /app/tools_gateway/
+COPY . ./tools_gateway/
 
 # Database will be created automatically on first run in /app directory
 
