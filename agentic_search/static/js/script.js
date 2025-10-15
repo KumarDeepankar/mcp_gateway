@@ -40,6 +40,10 @@ class AgenticSearch {
         this.sidebarOverlay = document.getElementById('sidebar-overlay');
         this.sidebarVisible = false; // Start collapsed by default
 
+        // Theme selector
+        this.themeToggleBtn = document.getElementById('theme-toggle-btn');
+        this.themeDropdown = document.getElementById('theme-dropdown');
+
         // Set initial centered state
         this.inputArea.classList.add('centered');
 
@@ -96,6 +100,27 @@ class AgenticSearch {
         // Logout button
         document.getElementById('logout-button').addEventListener('click', () => {
             this.handleLogout();
+        });
+
+        // Theme selector
+        this.themeToggleBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.toggleThemeDropdown();
+        });
+
+        // Theme options
+        document.querySelectorAll('.theme-option').forEach(option => {
+            option.addEventListener('click', (e) => {
+                const theme = option.dataset.theme;
+                this.changeTheme(theme);
+            });
+        });
+
+        // Close theme dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!this.themeDropdown.contains(e.target) && e.target !== this.themeToggleBtn) {
+                this.themeDropdown.classList.add('hidden');
+            }
         });
     }
 
@@ -712,6 +737,10 @@ class AgenticSearch {
             this.mainContent.classList.add('sidebar-hidden');
         }
 
+        // Load theme preference
+        const savedTheme = settings.theme || 'ocean';
+        this.applyTheme(savedTheme);
+
         // Update processing toggle button text
         const label = this.processingToggleButton.querySelector('.tool-label');
         label.textContent = this.showThinking ? 'Hide Processing' : 'Show Processing';
@@ -720,10 +749,40 @@ class AgenticSearch {
     saveSettings() {
         const settings = {
             showThinking: this.showThinking,
-            enabledTools: this.enabledTools
+            enabledTools: this.enabledTools,
+            theme: this.currentTheme || 'ocean'
         };
 
         localStorage.setItem('agenticSearchSettings', JSON.stringify(settings));
+    }
+
+    toggleThemeDropdown() {
+        this.themeDropdown.classList.toggle('hidden');
+    }
+
+    changeTheme(theme) {
+        this.currentTheme = theme;
+        this.applyTheme(theme);
+        this.saveSettings();
+        this.themeDropdown.classList.add('hidden');
+    }
+
+    applyTheme(theme) {
+        // Remove all theme classes
+        document.body.classList.remove('theme-ocean', 'theme-sunset', 'theme-forest', 'theme-lavender', 'theme-minimal');
+
+        // Add theme class
+        document.body.classList.add(`theme-${theme}`);
+
+        // Update active state in dropdown
+        document.querySelectorAll('.theme-option').forEach(option => {
+            option.classList.remove('active');
+            if (option.dataset.theme === theme) {
+                option.classList.add('active');
+            }
+        });
+
+        this.currentTheme = theme;
     }
 
     async loadUserProfile() {
