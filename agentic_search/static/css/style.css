@@ -52,115 +52,14 @@ body {
 
 /* Page Logo - Fully Responsive with Aggressive Shrinking */
 #left-page-logo {
-    position: fixed;
-    top: 12px;
-    left: 12px;
-    z-index: 999;
-    background: white;
-    backdrop-filter: blur(10px);
-    padding: 6px 12px;
-    border-radius: 10px;
-    box-shadow: var(--shadow-md);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    border: 1px solid var(--border-color);
-    max-width: calc(100vw - 60px);
+    display: none;
 }
 
-/* Position logo on top of sidebar - always visible on left */
-#left-page-logo.sidebar-hidden {
-    left: 20px;
-}
-
-/* Additional responsiveness */
-@media (max-width: 1200px) {
-    #left-page-logo {
-        max-width: calc(100vw - 60px);
-    }
-}
-
-@media (max-width: 768px) {
-    #left-page-logo {
-        left: 12px;
-        top: 12px;
-        max-width: calc(100vw - 60px);
-    }
-}
-
-@media (max-width: 480px) {
-    #left-page-logo {
-        left: 10px;
-        top: 12px;
-        max-width: calc(60vw);
-    }
-}
-
-#left-page-logo:hover {
-    transform: translateY(-1px);
-    box-shadow: var(--shadow-xl);
-    border-color: var(--primary-light);
-}
-
-#left-page-logo h2 {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-color);
-    display: flex;
-    align-items: center;
-    white-space: nowrap;
-    overflow: hidden;
-    margin: 0;
-}
-
-#left-page-logo .logo-icon {
-    flex-shrink: 0;
-    margin-right: 6px;
-    font-size: 16px;
-}
-
-#left-page-logo .logo-text {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 14px;
-}
-
-/* Responsive logo adjustments */
-@media (max-width: 900px) {
-    #left-page-logo {
-        max-width: calc(100vw - 60px);
-    }
-}
-
-@media (max-width: 768px) {
-    #left-page-logo {
-        max-width: calc(100vw - 60px);
-    }
-}
-
+/* Responsive adjustments */
 @media (max-width: 600px) {
-    #left-page-logo {
-        max-width: calc(60vw);
-    }
-
     #input-area.centered {
         width: calc(100% - 30px);
         padding: 16px;
-    }
-}
-
-@media (max-width: 480px) {
-    #left-page-logo .logo-text {
-        display: inline;
-        font-size: 12px;
-    }
-
-    #left-page-logo {
-        padding: 5px 8px;
-        max-width: calc(60vw);
-    }
-
-    #left-page-logo .logo-icon {
-        font-size: 14px;
-        margin-right: 4px;
     }
 }
 
@@ -866,10 +765,6 @@ body {
     #chat-main-content {
         margin-left: 320px;
     }
-
-    #left-page-logo {
-        left: 20px;
-    }
 }
 
 /* Medium screens - smaller sidebar */
@@ -880,10 +775,6 @@ body {
 
     #chat-main-content {
         margin-left: 280px;
-    }
-
-    #left-page-logo {
-        left: 20px;
     }
 }
 
@@ -921,10 +812,6 @@ body {
     #chat-main-content {
         margin-left: 0;
         padding: 80px 16px 16px;
-    }
-
-    #left-page-logo {
-        left: 20px;
     }
 
     /* Add a mobile toggle button */
