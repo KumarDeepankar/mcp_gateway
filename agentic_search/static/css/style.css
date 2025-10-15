@@ -413,8 +413,9 @@ body {
 
 /* Query Container - Modern Chat Card */
 .query-container {
-    margin-bottom: 32px;
+    margin-bottom: 40px;
     padding: 24px;
+    padding-bottom: 28px;
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.9) 100%);
     backdrop-filter: blur(12px);
     border-radius: 14px;
@@ -424,7 +425,7 @@ body {
         0 1px 3px rgba(0, 0, 0, 0.02);
     animation: fadeIn 0.3s ease;
     position: relative;
-    transition: box-shadow 0.8s ease, border-color 0.8s ease;
+    overflow: visible;
 }
 
 .query-container:last-child {
@@ -438,15 +439,15 @@ body {
 
 /* Glow effect for final answer - Shorter & Softer */
 .query-container.answer-glow {
-    animation: answerGlow 1.8s ease-out forwards;
+    animation: answerGlow 1.8s ease-in-out;
+    animation-fill-mode: both;
 }
 
 @keyframes answerGlow {
-    0% {
+    0%, 100% {
         box-shadow:
-            0 0 0 0 rgba(0, 147, 208, 0),
-            0 0 0 0 rgba(51, 172, 221, 0),
-            var(--shadow-sm);
+            0 2px 8px rgba(0, 0, 0, 0.03),
+            0 1px 3px rgba(0, 0, 0, 0.02);
         border-color: rgba(229, 231, 235, 0.6);
     }
     20% {
@@ -454,7 +455,8 @@ body {
             0 0 15px 3px rgba(0, 147, 208, 0.3),
             0 0 30px 6px rgba(51, 172, 221, 0.2),
             0 0 45px 9px rgba(102, 197, 232, 0.15),
-            var(--shadow-lg);
+            0 2px 8px rgba(0, 0, 0, 0.03),
+            0 1px 3px rgba(0, 0, 0, 0.02);
         border-color: rgba(0, 147, 208, 0.4);
     }
     50% {
@@ -462,15 +464,9 @@ body {
             0 0 18px 4px rgba(0, 147, 208, 0.35),
             0 0 35px 7px rgba(51, 172, 221, 0.25),
             0 0 50px 10px rgba(102, 197, 232, 0.18),
-            var(--shadow-xl);
+            0 2px 8px rgba(0, 0, 0, 0.03),
+            0 1px 3px rgba(0, 0, 0, 0.02);
         border-color: rgba(0, 147, 208, 0.45);
-    }
-    100% {
-        box-shadow:
-            0 0 0 0 rgba(0, 147, 208, 0),
-            0 0 0 0 rgba(51, 172, 221, 0),
-            var(--shadow-sm);
-        border-color: rgba(229, 231, 235, 0.6);
     }
 }
 
@@ -1066,6 +1062,13 @@ body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     transition: all 0.3s ease;
+    overflow: visible;
+    max-width: 100%;
+}
+
+/* Add extra bottom margin when expanded to prevent overlap */
+.step-chain:not(.collapsed) {
+    margin-bottom: 24px;
 }
 
 .step-chain.collapsed .chain-steps {
@@ -1073,14 +1076,16 @@ body {
     overflow: hidden;
     opacity: 0;
     margin-top: 0;
-    transition: all 0.3s ease;
+    margin-bottom: 0;
+    transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
 }
 
 .step-chain:not(.collapsed) .chain-steps {
-    max-height: 2000px;
+    max-height: none;
     opacity: 1;
     margin-top: 0;
-    transition: all 0.3s ease;
+    margin-bottom: 8px;
+    transition: max-height 0.3s ease, opacity 0.3s ease, margin 0.3s ease;
 }
 
 .chain-title {
@@ -1144,6 +1149,8 @@ body {
     line-height: 1.4;
     position: relative;
     z-index: 2;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .chain-progress.progress-visible {
@@ -1185,6 +1192,10 @@ body {
     -webkit-font-smoothing: subpixel-antialiased;
     -moz-osx-font-smoothing: auto;
     text-rendering: geometricPrecision;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
 }
 
 .chain-steps {
@@ -1192,6 +1203,7 @@ body {
     flex-direction: column;
     gap: 0;
     position: relative;
+    overflow: visible;
 }
 
 /* Vertical connector line */
@@ -1309,6 +1321,8 @@ body {
     opacity: 0.85;
     transform: translateX(-5px);
     font-size: 11px;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .chain-step.step-completed {
@@ -1352,6 +1366,10 @@ body {
     -moz-osx-font-smoothing: auto;
     text-rendering: geometricPrecision;
     line-height: 1.3;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
 }
 
 .step-connector {
@@ -1465,7 +1483,7 @@ body {
     align-items: center;
     gap: 6px;
     padding: 8px 16px;
-    margin: 14px 0 0 0;
+    margin: 18px 0 4px 0;
     background: white;
     border: 1.5px solid var(--border-color);
     border-radius: 10px;

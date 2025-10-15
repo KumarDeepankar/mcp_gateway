@@ -588,12 +588,12 @@ class AgenticSearch {
     triggerAnswerGlow() {
         // Add glow effect to current query container when final answer appears
         if (this.currentQueryContainer) {
-            this.currentQueryContainer.classList.add('answer-glow');
-
-            // Remove the class after animation completes to allow re-triggering
-            setTimeout(() => {
-                this.currentQueryContainer.classList.remove('answer-glow');
-            }, 1800); // Match the shorter animation duration (1.8s)
+            // Only add the class if it doesn't already exist
+            if (!this.currentQueryContainer.classList.contains('answer-glow')) {
+                this.currentQueryContainer.classList.add('answer-glow');
+            }
+            // Don't remove the class - let the animation complete and stay at 100% state
+            // which matches the default query-container styles exactly
         }
     }
 
