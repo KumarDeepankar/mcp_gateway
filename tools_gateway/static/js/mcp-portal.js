@@ -736,8 +736,27 @@ function displayToolParameters(tool) {
                     ${key} ${required ? '<span style="color: var(--error-color);">*</span>' : ''}
                     <small class="text-muted">(${type})</small>
                 </label>
-                <input type="text" class="form-control" id="param-${key}" 
+        `;
+
+        // Check if parameter has enum constraint - use dropdown
+        if (param.enum && Array.isArray(param.enum)) {
+            html += `
+                <select class="form-control" id="param-${key}" ${required ? 'required' : ''}>
+                    <option value="">-- Select ${key} --</option>
+                    ${param.enum.map(enumValue => `
+                        <option value="${enumValue}">${enumValue}</option>
+                    `).join('')}
+                </select>
+            `;
+        } else {
+            // Regular text input for non-enum parameters
+            html += `
+                <input type="text" class="form-control" id="param-${key}"
                        placeholder="${description}" ${required ? 'required' : ''}>
+            `;
+        }
+
+        html += `
                 ${description ? `<small class="text-muted">${description}</small>` : ''}
             </div>
         `;
@@ -768,7 +787,9 @@ async function executeTool() {
             const element = document.getElementById(`param-${key}`);
             if (element && element.value) {
                 let value = element.value;
-                if (param.type === 'number') {
+                if (param.type === 'integer') {
+                    value = parseInt(value, 10);
+                } else if (param.type === 'number') {
                     value = parseFloat(value);
                 } else if (param.type === 'boolean') {
                     value = value.toLowerCase() === 'true';
