@@ -41,21 +41,27 @@ class MCPTools:
         self.tools_registry["search_events"] = {
             "definition": {
                 "name": "search_events",
-                "description": "Search events using fuzzy matching across title, theme, highlight, summary, and objective fields. Handles spelling mistakes automatically.",
+                "description": "Search events using fuzzy matching across title, theme, highlight, summary, and objective fields. Handles spelling mistakes automatically. Use this for general keyword searches when you want to find events related to a topic or keyword. Returns events ranked by relevance score.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query text (spelling mistakes are tolerated)"
+                            "description": "Search query text (spelling mistakes are tolerated). Examples: 'climate change', 'education policy', 'healthcare reform'. Can be single words or phrases."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100. Use smaller values (5-10) for quick overviews, larger values (50-100) for comprehensive searches.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         }
                     },
-                    "required": ["query"]
+                    "required": ["query"],
+                    "examples": [
+                        {"query": "climate summit", "size": 10},
+                        {"query": "technology conference", "size": 20}
+                    ]
                 }
             },
             "handler": self._handle_search_events
@@ -65,21 +71,27 @@ class MCPTools:
         self.tools_registry["search_events_by_title"] = {
             "definition": {
                 "name": "search_events_by_title",
-                "description": "Search events specifically in the event_title field with fuzzy matching",
+                "description": "Search events specifically in the event_title field with fuzzy matching. Use this when you know the event name or want to find events with specific words in their titles. More precise than general search but limited to title field only. Returns events ranked by title relevance.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query for event titles"
+                            "description": "Search query for event titles. Examples: 'Annual Summit', 'Climate Conference', 'Workshop'. Use specific title keywords for better results."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         }
                     },
-                    "required": ["query"]
+                    "required": ["query"],
+                    "examples": [
+                        {"query": "Annual Summit", "size": 5},
+                        {"query": "Conference", "size": 15}
+                    ]
                 }
             },
             "handler": self._handle_search_by_title
@@ -89,21 +101,27 @@ class MCPTools:
         self.tools_registry["search_events_by_theme"] = {
             "definition": {
                 "name": "search_events_by_theme",
-                "description": "Search events by theme/topic with fuzzy matching",
+                "description": "Search events by theme/topic with fuzzy matching. Use this to find events grouped by a specific theme or subject area. Ideal for categorical searches when you want events focused on a particular topic domain. Returns events ranked by theme relevance.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "theme": {
                             "type": "string",
-                            "description": "Theme or topic to search for"
+                            "description": "Theme or topic to search for. Examples: 'sustainability', 'innovation', 'healthcare', 'education policy'. Should be a thematic category rather than specific keywords."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         }
                     },
-                    "required": ["theme"]
+                    "required": ["theme"],
+                    "examples": [
+                        {"theme": "sustainability", "size": 15},
+                        {"theme": "digital transformation", "size": 20}
+                    ]
                 }
             },
             "handler": self._handle_search_by_theme
@@ -113,21 +131,27 @@ class MCPTools:
         self.tools_registry["search_events_hybrid"] = {
             "definition": {
                 "name": "search_events_hybrid",
-                "description": "Advanced hybrid search combining standard and ngram analyzers for best fuzzy matching results",
+                "description": "Advanced hybrid search combining standard and ngram analyzers for best fuzzy matching results. Use this when you need the most robust fuzzy search that can handle misspellings, partial words, and variations better than standard search. Best for dealing with uncertain or incomplete search terms. Returns highest quality fuzzy matches.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query text"
+                            "description": "Search query text. Can include misspellings, partial words, or variations. Examples: 'clima sumit' (misspelled), 'tech innov' (partial), 'envronment' (misspelled)."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         }
                     },
-                    "required": ["query"]
+                    "required": ["query"],
+                    "examples": [
+                        {"query": "clima sumit", "size": 10},
+                        {"query": "tech innov", "size": 15}
+                    ]
                 }
             },
             "handler": self._handle_hybrid_search
@@ -137,21 +161,27 @@ class MCPTools:
         self.tools_registry["search_events_autocomplete"] = {
             "definition": {
                 "name": "search_events_autocomplete",
-                "description": "Autocomplete/prefix search for event titles and themes (search-as-you-type)",
+                "description": "Autocomplete/prefix search for event titles and themes (search-as-you-type). Use this when you have incomplete query terms and want to find events that start with those terms. Perfect for suggesting completions or when you only know the beginning of an event name. Returns events that match the prefix.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "prefix": {
                             "type": "string",
-                            "description": "Prefix text to autocomplete (minimum 2 characters)"
+                            "description": "Prefix text to autocomplete. Must be minimum 2 characters. Examples: 'clim' (to find climate events), 'ann' (to find annual events), 'tech' (to find technology events)."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 50)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 50. Use smaller values for quick suggestions.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 50
                         }
                     },
-                    "required": ["prefix"]
+                    "required": ["prefix"],
+                    "examples": [
+                        {"prefix": "clim", "size": 5},
+                        {"prefix": "tech", "size": 10}
+                    ]
                 }
             },
             "handler": self._handle_autocomplete_search
@@ -165,26 +195,32 @@ class MCPTools:
         self.tools_registry["filter_events_by_country"] = {
             "definition": {
                 "name": "filter_events_by_country",
-                "description": "Filter events by country (Denmark or Dominica). Can optionally include search query.",
+                "description": "Filter events by country (Denmark or Dominica). Use this when you want to see events from a specific country. Can optionally combine with a search query to find specific events within that country. Returns events filtered by country, optionally ranked by search relevance if query is provided.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "country": {
                             "type": "string",
-                            "description": "Country name (e.g., 'Denmark' or 'Dominica')",
+                            "description": "Country name. Must be exactly 'Denmark' or 'Dominica'. Case-sensitive.",
                             "enum": ["Denmark", "Dominica"]
                         },
                         "query": {
                             "type": "string",
-                            "description": "Optional search query to combine with country filter"
+                            "description": "Optional search query to combine with country filter. Examples: 'technology' to find technology events in the selected country. Leave empty to get all events from the country."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         }
                     },
-                    "required": ["country"]
+                    "required": ["country"],
+                    "examples": [
+                        {"country": "Denmark", "size": 20},
+                        {"country": "Dominica", "query": "sustainability", "size": 15}
+                    ]
                 }
             },
             "handler": self._handle_filter_by_country
@@ -194,25 +230,31 @@ class MCPTools:
         self.tools_registry["filter_events_by_year"] = {
             "definition": {
                 "name": "filter_events_by_year",
-                "description": "Filter events by a specific year. Can optionally include search query.",
+                "description": "Filter events by a specific year. Use this when you want to see all events from a particular year. Can optionally combine with search query to find specific events in that year. Returns events from the specified year, optionally ranked by search relevance.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "year": {
                             "type": "integer",
-                            "description": "Year to filter (e.g., 2021, 2022, 2023)"
+                            "description": "Year to filter. Must be a 4-digit year. Examples: 2021, 2022, 2023, 2024."
                         },
                         "query": {
                             "type": "string",
-                            "description": "Optional search query to combine with year filter"
+                            "description": "Optional search query to combine with year filter. Examples: 'climate' to find climate events in the specified year. Leave empty to get all events from that year."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         }
                     },
-                    "required": ["year"]
+                    "required": ["year"],
+                    "examples": [
+                        {"year": 2023, "size": 25},
+                        {"year": 2022, "query": "technology", "size": 15}
+                    ]
                 }
             },
             "handler": self._handle_filter_by_year
@@ -222,29 +264,35 @@ class MCPTools:
         self.tools_registry["filter_events_by_year_range"] = {
             "definition": {
                 "name": "filter_events_by_year_range",
-                "description": "Filter events by year range (from year to year). Can optionally include search query.",
+                "description": "Filter events by year range (from start_year to end_year, inclusive). Use this for time-period analysis or when looking at events across multiple years. Can optionally combine with search query. Returns events within the year range, optionally ranked by search relevance.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "start_year": {
                             "type": "integer",
-                            "description": "Start year (inclusive)"
+                            "description": "Start year (inclusive). Must be a 4-digit year. Example: 2020 to start from year 2020."
                         },
                         "end_year": {
                             "type": "integer",
-                            "description": "End year (inclusive)"
+                            "description": "End year (inclusive). Must be a 4-digit year and >= start_year. Example: 2023 to include events up to 2023."
                         },
                         "query": {
                             "type": "string",
-                            "description": "Optional search query to combine with year range filter"
+                            "description": "Optional search query to combine with year range filter. Examples: 'innovation' to find innovation events within the year range."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         }
                     },
-                    "required": ["start_year", "end_year"]
+                    "required": ["start_year", "end_year"],
+                    "examples": [
+                        {"start_year": 2020, "end_year": 2023, "size": 50},
+                        {"start_year": 2021, "end_year": 2022, "query": "sustainability", "size": 30}
+                    ]
                 }
             },
             "handler": self._handle_filter_by_year_range
@@ -254,28 +302,34 @@ class MCPTools:
         self.tools_registry["filter_events_by_attendance"] = {
             "definition": {
                 "name": "filter_events_by_attendance",
-                "description": "Filter events by attendance/participation count range",
+                "description": "Filter events by attendance/participation count range. Use this to find events based on their size (small, medium, large). Can filter by minimum attendance, maximum attendance, or both. Useful for finding high-impact events or intimate gatherings. Returns events within the attendance range.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "min_attendance": {
                             "type": "integer",
-                            "description": "Minimum attendance count (optional)"
+                            "description": "Minimum attendance count (optional). Events must have at least this many attendees. Example: 100 to find events with 100+ attendees. Omit for no minimum."
                         },
                         "max_attendance": {
                             "type": "integer",
-                            "description": "Maximum attendance count (optional)"
+                            "description": "Maximum attendance count (optional). Events must have at most this many attendees. Example: 500 to find events with up to 500 attendees. Omit for no maximum."
                         },
                         "query": {
                             "type": "string",
-                            "description": "Optional search query to combine with attendance filter"
+                            "description": "Optional search query to combine with attendance filter. Examples: 'conference' to find conferences within the attendance range."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         }
-                    }
+                    },
+                    "examples": [
+                        {"min_attendance": 100, "max_attendance": 500, "size": 20},
+                        {"min_attendance": 1000, "query": "summit", "size": 10}
+                    ]
                 }
             },
             "handler": self._handle_filter_by_attendance
@@ -285,53 +339,59 @@ class MCPTools:
         self.tools_registry["search_and_filter_events"] = {
             "definition": {
                 "name": "search_and_filter_events",
-                "description": "Search events with multiple filters combined (country, year range, attendance). Best for complex queries.",
+                "description": "Search events with multiple filters combined (country, year range, attendance) and custom sorting. Best for complex queries requiring multiple criteria. Use this when you need to combine several filters together (e.g., technology events in Denmark from 2020-2023 with 100+ attendees). Returns precisely filtered and sorted results.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "Search query text (optional)"
+                            "description": "Search query text (optional). Searches across all event fields. Examples: 'innovation', 'climate policy'. Leave empty if you only want to filter without search."
                         },
                         "country": {
                             "type": "string",
-                            "description": "Country filter (optional)",
+                            "description": "Country filter (optional). Must be exactly 'Denmark' or 'Dominica'. Omit to include all countries.",
                             "enum": ["Denmark", "Dominica"]
                         },
                         "start_year": {
                             "type": "integer",
-                            "description": "Start year for range filter (optional)"
+                            "description": "Start year for range filter (optional). 4-digit year. Example: 2020. Omit for no start year limit."
                         },
                         "end_year": {
                             "type": "integer",
-                            "description": "End year for range filter (optional)"
+                            "description": "End year for range filter (optional). 4-digit year. Example: 2023. Omit for no end year limit."
                         },
                         "min_attendance": {
                             "type": "integer",
-                            "description": "Minimum attendance (optional)"
+                            "description": "Minimum attendance (optional). Example: 50 for events with at least 50 attendees. Omit for no minimum."
                         },
                         "max_attendance": {
                             "type": "integer",
-                            "description": "Maximum attendance (optional)"
+                            "description": "Maximum attendance (optional). Example: 1000 for events with up to 1000 attendees. Omit for no maximum."
                         },
                         "size": {
                             "type": "integer",
-                            "description": "Number of results to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of results to return. Default: 10, minimum: 1, maximum: 100.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         },
                         "sort_by": {
                             "type": "string",
-                            "description": "Sort field (year, event_count, or relevance)",
+                            "description": "Sort field. 'year' = sort by event year, 'event_count' = sort by attendance, 'relevance' = sort by search relevance (only works with query). Default: 'relevance'.",
                             "enum": ["year", "event_count", "relevance"],
                             "default": "relevance"
                         },
                         "sort_order": {
                             "type": "string",
-                            "description": "Sort order (asc or desc)",
+                            "description": "Sort order. 'asc' = ascending (oldest/smallest first), 'desc' = descending (newest/largest first). Default: 'desc'.",
                             "enum": ["asc", "desc"],
                             "default": "desc"
                         }
-                    }
+                    },
+                    "examples": [
+                        {"query": "technology", "country": "Denmark", "start_year": 2020, "end_year": 2023, "min_attendance": 100, "size": 25, "sort_by": "year", "sort_order": "desc"},
+                        {"country": "Dominica", "min_attendance": 50, "max_attendance": 500, "size": 20, "sort_by": "event_count", "sort_order": "asc"}
+                    ]
                 }
             },
             "handler": self._handle_search_and_filter
@@ -345,16 +405,20 @@ class MCPTools:
         self.tools_registry["get_events_stats_by_year"] = {
             "definition": {
                 "name": "get_events_stats_by_year",
-                "description": "Get year-wise statistics including event count and average attendance per year",
+                "description": "Get year-wise statistics including event count and average attendance per year. Use this for temporal trend analysis, to see how events evolved over time, or to compare different years. Returns aggregated statistics grouped by year with metrics: event count, average/min/max/total attendance per year.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "country": {
                             "type": "string",
-                            "description": "Optional country filter",
+                            "description": "Optional country filter. Use 'Denmark' or 'Dominica' to get year-wise stats for a specific country. Omit to get stats across all countries.",
                             "enum": ["Denmark", "Dominica"]
                         }
-                    }
+                    },
+                    "examples": [
+                        {},
+                        {"country": "Denmark"}
+                    ]
                 }
             },
             "handler": self._handle_stats_by_year
@@ -364,15 +428,19 @@ class MCPTools:
         self.tools_registry["get_events_stats_by_country"] = {
             "definition": {
                 "name": "get_events_stats_by_country",
-                "description": "Get country-wise statistics including event count and average attendance per country",
+                "description": "Get country-wise statistics including event count and average attendance per country. Use this for geographic comparison, to understand event distribution across countries. Returns aggregated statistics grouped by country with metrics: event count, average/min/max/total attendance per country.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "year": {
                             "type": "integer",
-                            "description": "Optional year filter"
+                            "description": "Optional year filter. Use a 4-digit year (e.g., 2023) to get country-wise stats for a specific year. Omit to get stats across all years."
                         }
-                    }
+                    },
+                    "examples": [
+                        {},
+                        {"year": 2023}
+                    ]
                 }
             },
             "handler": self._handle_stats_by_country
@@ -382,25 +450,31 @@ class MCPTools:
         self.tools_registry["get_events_by_theme_aggregation"] = {
             "definition": {
                 "name": "get_events_by_theme_aggregation",
-                "description": "Get aggregated count of events by theme/topic",
+                "description": "Get aggregated count of events by theme/topic, ranked by popularity. Use this to identify trending themes, popular topics, or to understand what types of events are most common. Perfect for content analysis and identifying focus areas. Returns top N themes with their event counts, sorted by frequency.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "top_n": {
                             "type": "integer",
-                            "description": "Number of top themes to return (default: 10, max: 50)",
-                            "default": 10
+                            "description": "Number of top themes to return. Default: 10, minimum: 1, maximum: 50. Use smaller values (5-10) for top themes, larger values (30-50) for comprehensive theme analysis.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 50
                         },
                         "year": {
                             "type": "integer",
-                            "description": "Optional year filter"
+                            "description": "Optional year filter. Use a 4-digit year to get theme aggregation for a specific year. Omit to aggregate across all years."
                         },
                         "country": {
                             "type": "string",
-                            "description": "Optional country filter",
+                            "description": "Optional country filter. Use 'Denmark' or 'Dominica' to get themes for a specific country. Omit to aggregate across all countries.",
                             "enum": ["Denmark", "Dominica"]
                         }
-                    }
+                    },
+                    "examples": [
+                        {"top_n": 15},
+                        {"top_n": 20, "year": 2023, "country": "Denmark"}
+                    ]
                 }
             },
             "handler": self._handle_theme_aggregation
@@ -410,20 +484,25 @@ class MCPTools:
         self.tools_registry["get_event_attendance_stats"] = {
             "definition": {
                 "name": "get_event_attendance_stats",
-                "description": "Get statistical analysis of event attendance (min, max, average, sum, count)",
+                "description": "Get statistical analysis of event attendance including min, max, average, sum, and count. Use this for attendance analysis, capacity planning, or understanding event size distribution. Returns comprehensive attendance metrics: minimum, maximum, average, total sum, and event count.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "year": {
                             "type": "integer",
-                            "description": "Optional year filter"
+                            "description": "Optional year filter. Use a 4-digit year to get attendance stats for a specific year. Omit to get stats across all years."
                         },
                         "country": {
                             "type": "string",
-                            "description": "Optional country filter",
+                            "description": "Optional country filter. Use 'Denmark' or 'Dominica' to get attendance stats for a specific country. Omit to get stats across all countries.",
                             "enum": ["Denmark", "Dominica"]
                         }
-                    }
+                    },
+                    "examples": [
+                        {},
+                        {"year": 2023},
+                        {"country": "Denmark", "year": 2022}
+                    ]
                 }
             },
             "handler": self._handle_attendance_stats
@@ -437,16 +516,20 @@ class MCPTools:
         self.tools_registry["get_event_by_id"] = {
             "definition": {
                 "name": "get_event_by_id",
-                "description": "Retrieve a specific event by its document ID",
+                "description": "Retrieve a specific event by its document ID. Use this when you have an event ID from a previous search and want to get the full details of that specific event. Returns complete event document with all fields including title, theme, summary, objective, highlight, year, country, attendance, and metadata.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "event_id": {
                             "type": "string",
-                            "description": "The document ID of the event to retrieve"
+                            "description": "The document ID of the event to retrieve. This is typically returned in the 'id' field from search results. Example: 'evt_12345' or document IDs returned by other tools."
                         }
                     },
-                    "required": ["event_id"]
+                    "required": ["event_id"],
+                    "examples": [
+                        {"event_id": "evt_001"},
+                        {"event_id": "12345"}
+                    ]
                 }
             },
             "handler": self._handle_get_event
@@ -456,33 +539,41 @@ class MCPTools:
         self.tools_registry["list_all_events"] = {
             "definition": {
                 "name": "list_all_events",
-                "description": "List all events with pagination support",
+                "description": "List all events with pagination and sorting support. Use this to browse through all events in the index, get a sample of events, or retrieve events in a specific order. Perfect for data exploration or getting an overview. Returns paginated list of events with basic information (id, year, country, title, theme, attendance).",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "size": {
                             "type": "integer",
-                            "description": "Number of events to return (default: 10, max: 100)",
-                            "default": 10
+                            "description": "Number of events to return per page. Default: 10, minimum: 1, maximum: 100. Use smaller values (10-20) for quick browsing, larger values (50-100) for bulk retrieval.",
+                            "default": 10,
+                            "minimum": 1,
+                            "maximum": 100
                         },
                         "from": {
                             "type": "integer",
-                            "description": "Offset for pagination (default: 0)",
-                            "default": 0
+                            "description": "Offset for pagination (starting position). Default: 0. Use this for pagination - e.g., from=0 for page 1, from=10 for page 2 (with size=10), from=20 for page 3, etc.",
+                            "default": 0,
+                            "minimum": 0
                         },
                         "sort_by": {
                             "type": "string",
-                            "description": "Sort field (year, event_count)",
+                            "description": "Sort field. 'year' = sort by event year, 'event_count' = sort by attendance count. Default: 'year'.",
                             "enum": ["year", "event_count"],
                             "default": "year"
                         },
                         "sort_order": {
                             "type": "string",
-                            "description": "Sort order (asc or desc)",
+                            "description": "Sort order. 'asc' = ascending (oldest/smallest first), 'desc' = descending (newest/largest first). Default: 'desc'.",
                             "enum": ["asc", "desc"],
                             "default": "desc"
                         }
-                    }
+                    },
+                    "examples": [
+                        {"size": 20, "sort_by": "year", "sort_order": "desc"},
+                        {"size": 50, "from": 0, "sort_by": "event_count", "sort_order": "desc"},
+                        {"size": 10, "from": 20}
+                    ]
                 }
             },
             "handler": self._handle_list_events
@@ -492,20 +583,26 @@ class MCPTools:
         self.tools_registry["count_events"] = {
             "definition": {
                 "name": "count_events",
-                "description": "Get the total count of events in the index with optional filters",
+                "description": "Get the total count of events in the index with optional filters. Use this to get quick statistics about the total number of events, or to count events matching specific criteria (country, year). Returns a simple count number. Useful for understanding dataset size before running detailed queries.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "country": {
                             "type": "string",
-                            "description": "Optional country filter",
+                            "description": "Optional country filter. Use 'Denmark' or 'Dominica' to count events for a specific country. Omit to count all events across all countries.",
                             "enum": ["Denmark", "Dominica"]
                         },
                         "year": {
                             "type": "integer",
-                            "description": "Optional year filter"
+                            "description": "Optional year filter. Use a 4-digit year to count events for a specific year. Omit to count all events across all years."
                         }
-                    }
+                    },
+                    "examples": [
+                        {},
+                        {"country": "Denmark"},
+                        {"year": 2023},
+                        {"country": "Dominica", "year": 2022}
+                    ]
                 }
             },
             "handler": self._handle_count_events
