@@ -59,8 +59,7 @@ class AgenticSearch {
         this.sidebar.classList.remove('sidebar-visible');
         this.mainContent.classList.add('sidebar-hidden');
 
-        // Set right sidebar to hidden initially
-        this.mainContent.classList.add('right-sidebar-hidden');
+        // Right sidebar is hidden initially but doesn't shift main content
     }
 
     setupEventListeners() {
@@ -194,11 +193,10 @@ class AgenticSearch {
         if (this.rightSidebarVisible) {
             this.rightSidebar.classList.remove('sidebar-hidden');
             this.rightSidebar.classList.add('sidebar-visible');
-            this.mainContent.classList.remove('right-sidebar-hidden');
+            // Don't shift main content - let sidebar overlay
         } else {
             this.rightSidebar.classList.remove('sidebar-visible');
             this.rightSidebar.classList.add('sidebar-hidden');
-            this.mainContent.classList.add('right-sidebar-hidden');
         }
 
         // Save preference
@@ -254,7 +252,7 @@ class AgenticSearch {
             this.rightSidebarVisible = false;
             this.rightSidebar.classList.remove('sidebar-visible');
             this.rightSidebar.classList.add('sidebar-hidden');
-            this.mainContent.classList.add('right-sidebar-hidden');
+            // Don't shift main content
             localStorage.setItem('rightSidebarVisible', this.rightSidebarVisible);
         }
     }
@@ -438,7 +436,7 @@ class AgenticSearch {
             this.rightSidebarVisible = true;
             this.rightSidebar.classList.remove('sidebar-hidden');
             this.rightSidebar.classList.add('sidebar-visible');
-            this.mainContent.classList.remove('right-sidebar-hidden');
+            // Don't shift main content - let sidebar overlay
             localStorage.setItem('rightSidebarVisible', this.rightSidebarVisible);
         }
     }

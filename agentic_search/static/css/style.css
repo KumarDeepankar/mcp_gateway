@@ -1812,20 +1812,22 @@ body.theme-minimal {
 /* Right Sidebar for Sources - Glassmorphism */
 #right-sidebar {
     position: fixed;
-    top: 0;
+    top: 20px; /* Match chat window top spacing */
     right: 0;
     width: 350px;
-    height: 100vh;
-    background: rgba(255, 255, 255, 0.65);
+    height: calc(100vh - 90px); /* Account for top margin and footer */
+    background: rgba(255, 255, 255, 0.75); /* Slightly more opaque for better contrast */
     backdrop-filter: blur(30px) saturate(150%);
     -webkit-backdrop-filter: blur(30px) saturate(150%);
     border-left: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 20px 0 0 20px; /* Rounded left corners for aesthetics */
     padding: 20px;
     z-index: 1000;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
     overflow-y: auto;
     box-shadow:
-        -4px 0 24px rgba(0, 0, 0, 0.06),
+        -8px 0 32px rgba(0, 0, 0, 0.1), /* Enhanced shadow for overlay effect */
+        -4px 0 16px rgba(0, 0, 0, 0.06),
         inset 1px 0 0 rgba(255, 255, 255, 0.5);
 }
 
@@ -1840,9 +1842,9 @@ body.theme-minimal {
     pointer-events: auto;
 }
 
-/* Adjust main content when right sidebar is visible */
+/* Keep chat window centered - sources sidebar overlays without shifting content */
 #chat-main-content:not(.right-sidebar-hidden) {
-    margin-right: 350px;
+    margin-right: 0; /* Don't shift - let sidebar overlay */
 }
 
 /* Sources Content */
@@ -2012,9 +2014,7 @@ body.theme-minimal {
         width: 300px;
     }
 
-    #chat-main-content:not(.right-sidebar-hidden) {
-        margin-right: 300px;
-    }
+    /* Keep chat centered - no margin adjustment */
 }
 
 @media (max-width: 1200px) {
@@ -2022,9 +2022,7 @@ body.theme-minimal {
         width: 280px;
     }
 
-    #chat-main-content:not(.right-sidebar-hidden) {
-        margin-right: 280px;
-    }
+    /* Keep chat centered - no margin adjustment */
 }
 
 @media (max-width: 1024px) {
@@ -2033,6 +2031,8 @@ body.theme-minimal {
         transform: translateX(100%);
         width: 320px;
         z-index: 1001;
+        top: 20px;
+        height: calc(100vh - 90px);
     }
 
     #right-sidebar.sidebar-visible {
@@ -2048,6 +2048,9 @@ body.theme-minimal {
     #right-sidebar {
         width: 100%;
         max-width: 400px;
+        top: 16px;
+        height: calc(100vh - 80px);
+        border-radius: 16px 0 0 16px;
     }
 
     .source-item {
