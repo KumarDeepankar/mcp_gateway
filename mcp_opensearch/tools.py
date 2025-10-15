@@ -1282,7 +1282,10 @@ class MCPTools:
                 "title": source.get("event_title"),
                 "theme": source.get("event_theme"),
                 "attendance": source.get("event_count"),
-                "highlight": source.get("event_highlight", "")[:200] if source.get("event_highlight") else ""
+                "highlight": source.get("event_highlight", "")[:200] if source.get("event_highlight") else "",
+                "url": source.get("url", ""),
+                "rid": source.get("rid", ""),
+                "docid": source.get("docid", "")
             })
 
         response = f"Found {total_hits} events matching {query_desc}. Showing top {len(hits)} results:\n\n"

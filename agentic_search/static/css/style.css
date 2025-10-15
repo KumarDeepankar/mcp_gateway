@@ -86,15 +86,19 @@ body.theme-minimal {
     display: none;
 }
 
-/* Theme Selector */
-#theme-selector-container {
+/* Top Right Controls Container */
+#top-right-controls {
     position: fixed;
     top: 20px;
     right: 20px;
     z-index: 1100;
+    display: flex;
+    gap: 12px;
+    align-items: center;
 }
 
-.theme-toggle-btn {
+/* Shared styling for top control buttons */
+.top-control-btn {
     background: rgba(255, 255, 255, 0.8);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
@@ -111,17 +115,58 @@ body.theme-minimal {
         inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 
-.theme-toggle-btn:hover {
+.top-control-btn:hover {
     background: rgba(255, 255, 255, 0.95);
-    transform: translateY(-2px) rotate(45deg);
+    transform: translateY(-2px);
     box-shadow:
         0 6px 16px rgba(0, 0, 0, 0.12),
         inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 
-.theme-toggle-btn svg {
+.top-control-btn svg {
     stroke: var(--primary-color);
     transition: all 0.3s ease;
+}
+
+/* Theme button specific styling */
+.theme-toggle-btn:hover {
+    transform: translateY(-2px) rotate(45deg);
+}
+
+/* Sources toggle button specific styling */
+.sources-toggle-btn {
+    opacity: 1;
+    transition: all 0.3s ease, opacity 0.3s ease;
+}
+
+.sources-toggle-btn.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: scale(0.8);
+}
+
+.sources-toggle-btn:not(.hidden) {
+    animation: fadeInScale 0.3s ease;
+}
+
+@keyframes fadeInScale {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Theme Selector Dropdown */
+#theme-selector-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1100;
+    pointer-events: none;
 }
 
 .theme-dropdown {
@@ -141,6 +186,7 @@ body.theme-minimal {
     opacity: 1;
     transform: translateY(0);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: all;
 }
 
 .theme-dropdown.hidden {
@@ -215,6 +261,12 @@ body.theme-minimal {
     #input-area.centered {
         width: calc(100% - 30px);
         padding: 16px;
+    }
+
+    #top-right-controls {
+        top: 12px;
+        right: 12px;
+        gap: 8px;
     }
 
     #theme-selector-container {
@@ -1754,5 +1806,261 @@ body.theme-minimal {
         font-size: 16px;
         width: 26px;
         height: 26px;
+    }
+}
+
+/* Right Sidebar for Sources - Glassmorphism */
+#right-sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 350px;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.65);
+    backdrop-filter: blur(30px) saturate(150%);
+    -webkit-backdrop-filter: blur(30px) saturate(150%);
+    border-left: 1px solid rgba(255, 255, 255, 0.6);
+    padding: 20px;
+    z-index: 1000;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease;
+    overflow-y: auto;
+    box-shadow:
+        -4px 0 24px rgba(0, 0, 0, 0.06),
+        inset 1px 0 0 rgba(255, 255, 255, 0.5);
+}
+
+#right-sidebar.sidebar-hidden {
+    transform: translateX(100%);
+    opacity: 0;
+}
+
+#right-sidebar.sidebar-visible {
+    transform: translateX(0);
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Adjust main content when right sidebar is visible */
+#chat-main-content:not(.right-sidebar-hidden) {
+    margin-right: 350px;
+}
+
+/* Sources Content */
+.sources-content {
+    margin-top: 16px;
+}
+
+.sources-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--text-muted);
+}
+
+.sources-placeholder p {
+    font-size: 14px;
+    font-weight: 500;
+    margin-bottom: 8px;
+    color: var(--text-color);
+}
+
+.sources-placeholder small {
+    font-size: 12px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+/* Sources Header */
+.sources-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 12px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.sources-count {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-color);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Sources List */
+.sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* Source Item Card */
+.source-item {
+    display: flex;
+    gap: 12px;
+    padding: 14px 16px;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    box-shadow:
+        0 2px 8px rgba(0, 0, 0, 0.04),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    animation: fadeIn 0.3s ease;
+}
+
+.source-item:hover {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(0, 147, 208, 0.4);
+    transform: translateX(-4px);
+    box-shadow:
+        0 4px 12px rgba(0, 147, 208, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 1);
+}
+
+/* Source Number Badge */
+.source-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: linear-gradient(135deg, var(--accent-color) 0%, var(--accent-light) 100%);
+    color: white;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0, 147, 208, 0.25);
+}
+
+/* Source Details */
+.source-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.source-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-color);
+    margin-bottom: 6px;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.source-url {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-size: 11px;
+}
+
+.source-url svg {
+    flex-shrink: 0;
+    stroke: var(--accent-color);
+}
+
+.source-url a {
+    color: var(--accent-color);
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.source-url a:hover {
+    color: var(--accent-light);
+    text-decoration: underline;
+}
+
+.source-meta {
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 4px;
+    font-family: 'Monaco', 'Courier New', monospace;
+    background: rgba(248, 250, 252, 0.8);
+    padding: 3px 8px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-right: 6px;
+}
+
+/* Responsive adjustments for right sidebar */
+@media (max-width: 1400px) {
+    #right-sidebar {
+        width: 300px;
+    }
+
+    #chat-main-content:not(.right-sidebar-hidden) {
+        margin-right: 300px;
+    }
+}
+
+@media (max-width: 1200px) {
+    #right-sidebar {
+        width: 280px;
+    }
+
+    #chat-main-content:not(.right-sidebar-hidden) {
+        margin-right: 280px;
+    }
+}
+
+@media (max-width: 1024px) {
+    #right-sidebar {
+        position: fixed;
+        transform: translateX(100%);
+        width: 320px;
+        z-index: 1001;
+    }
+
+    #right-sidebar.sidebar-visible {
+        transform: translateX(0);
+    }
+
+    #chat-main-content:not(.right-sidebar-hidden) {
+        margin-right: 0;
+    }
+}
+
+@media (max-width: 768px) {
+    #right-sidebar {
+        width: 100%;
+        max-width: 400px;
+    }
+
+    .source-item {
+        padding: 12px 14px;
+    }
+
+    .source-number {
+        width: 24px;
+        height: 24px;
+        font-size: 11px;
+    }
+
+    .source-title {
+        font-size: 12px;
     }
 }

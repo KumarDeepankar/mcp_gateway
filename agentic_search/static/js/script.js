@@ -40,6 +40,13 @@ class AgenticSearch {
         this.sidebarOverlay = document.getElementById('sidebar-overlay');
         this.sidebarVisible = false; // Start collapsed by default
 
+        // Right sidebar for sources
+        this.rightSidebar = document.getElementById('right-sidebar');
+        this.rightSidebarToggleBtn = document.getElementById('right-sidebar-toggle-btn');
+        this.rightSidebarCollapseBtn = document.getElementById('right-sidebar-collapse-btn');
+        this.sourcesContainer = document.getElementById('sources-container');
+        this.rightSidebarVisible = false; // Start hidden by default
+
         // Theme selector
         this.themeToggleBtn = document.getElementById('theme-toggle-btn');
         this.themeDropdown = document.getElementById('theme-dropdown');
@@ -47,10 +54,13 @@ class AgenticSearch {
         // Set initial centered state
         this.inputArea.classList.add('centered');
 
-        // Set sidebar to hidden initially
+        // Set left sidebar to hidden initially
         this.sidebar.classList.add('sidebar-hidden');
         this.sidebar.classList.remove('sidebar-visible');
         this.mainContent.classList.add('sidebar-hidden');
+
+        // Set right sidebar to hidden initially
+        this.mainContent.classList.add('right-sidebar-hidden');
     }
 
     setupEventListeners() {
@@ -78,6 +88,12 @@ class AgenticSearch {
 
         // Close sidebar when clicking overlay (mobile)
         this.sidebarOverlay.addEventListener('click', () => this.toggleSidebar());
+
+        // Right sidebar toggle button
+        this.rightSidebarToggleBtn.addEventListener('click', () => this.toggleRightSidebar());
+
+        // Right sidebar collapse button
+        this.rightSidebarCollapseBtn.addEventListener('click', () => this.toggleRightSidebar());
 
         // Tool management - now inline
         document.getElementById('refresh-tools-button').addEventListener('click', () => {
@@ -172,6 +188,23 @@ class AgenticSearch {
         localStorage.setItem('sidebarVisible', this.sidebarVisible);
     }
 
+    toggleRightSidebar() {
+        this.rightSidebarVisible = !this.rightSidebarVisible;
+
+        if (this.rightSidebarVisible) {
+            this.rightSidebar.classList.remove('sidebar-hidden');
+            this.rightSidebar.classList.add('sidebar-visible');
+            this.mainContent.classList.remove('right-sidebar-hidden');
+        } else {
+            this.rightSidebar.classList.remove('sidebar-visible');
+            this.rightSidebar.classList.add('sidebar-hidden');
+            this.mainContent.classList.add('right-sidebar-hidden');
+        }
+
+        // Save preference
+        localStorage.setItem('rightSidebarVisible', this.rightSidebarVisible);
+    }
+
     handleWindowResize() {
         const windowWidth = window.innerWidth;
 
@@ -197,6 +230,228 @@ class AgenticSearch {
     clearChat() {
         this.chatConsole.innerHTML = '';
         this.currentQueryContainer = null; // Reset current container reference
+        this.clearSources(); // Clear sources when clearing chat
+    }
+
+    clearSources() {
+        // Reset sources panel to placeholder
+        this.sourcesContainer.innerHTML = `
+            <div class="sources-placeholder">
+                <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="opacity: 0.3; margin-bottom: 12px;">
+                    <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+                    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+                </svg>
+                <p>No sources yet</p>
+                <small>Sources and URLs will appear here when you perform a search</small>
+            </div>
+        `;
+
+        // Hide the sources toggle button
+        this.rightSidebarToggleBtn.classList.add('hidden');
+
+        // Hide the right sidebar when clearing sources
+        if (this.rightSidebarVisible) {
+            this.rightSidebarVisible = false;
+            this.rightSidebar.classList.remove('sidebar-visible');
+            this.rightSidebar.classList.add('sidebar-hidden');
+            this.mainContent.classList.add('right-sidebar-hidden');
+            localStorage.setItem('rightSidebarVisible', this.rightSidebarVisible);
+        }
+    }
+
+    extractSourcesFromResponse(responseText) {
+        // Extract sources from JSON data in the response
+        const sources = [];
+
+        console.log('Extracting sources from response text:', responseText.substring(0, 500));
+
+        try {
+            // Strategy 1: Look for properly formatted JSON arrays (double quotes)
+            const jsonArrayPattern = /\[\s*\{[\s\S]*?"(?:url|rid|docid|id)"[\s\S]*?\}\s*\]/g;
+            let jsonMatches = responseText.match(jsonArrayPattern);
+
+            console.log('Found proper JSON array matches:', jsonMatches ? jsonMatches.length : 0);
+
+            if (jsonMatches) {
+                for (const jsonStr of jsonMatches) {
+                    try {
+                        const data = JSON.parse(jsonStr);
+                        if (Array.isArray(data)) {
+                            console.log('Parsed array with', data.length, 'items');
+                            data.forEach(item => {
+                                // Check if item has source fields
+                                if (item.url || item.rid || item.docid || item.id) {
+                                    const source = {
+                                        url: item.url || '',
+                                        rid: item.rid || '',
+                                        docid: item.docid || '',
+                                        title: item.title || item.event_title || 'Untitled',
+                                        id: item.id || item.docid || item.rid || Math.random().toString(36).substr(2, 9)
+                                    };
+                                    console.log('Adding source:', source);
+                                    sources.push(source);
+                                }
+                            });
+                        }
+                    } catch (e) {
+                        console.warn('Failed to parse JSON block:', e);
+                    }
+                }
+            }
+
+            // Strategy 2: Extract individual JSON objects with double quotes
+            const objectPattern = /\{\s*"id"\s*:\s*"[^"]+"\s*,\s*"score"\s*:[\s\S]*?\}/g;
+            const objectMatches = responseText.match(objectPattern);
+
+            console.log('Found JSON object matches:', objectMatches ? objectMatches.length : 0);
+
+            if (objectMatches) {
+                for (const objStr of objectMatches) {
+                    try {
+                        const item = JSON.parse(objStr);
+                        if (item.url || item.rid || item.docid || item.id) {
+                            const source = {
+                                url: item.url || '',
+                                rid: item.rid || '',
+                                docid: item.docid || '',
+                                title: item.title || item.event_title || 'Untitled',
+                                id: item.id || item.docid || item.rid || Math.random().toString(36).substr(2, 9)
+                            };
+                            console.log('Adding source from object:', source);
+                            sources.push(source);
+                        }
+                    } catch (e) {
+                        // Skip invalid JSON
+                    }
+                }
+            }
+
+            // Strategy 3: Manual extraction of key fields using regex
+            if (sources.length === 0) {
+                console.log('Trying manual extraction...');
+                // Look for patterns like: "id": "...", "title": "...", "url": "..."
+                const idPattern = /"id"\s*:\s*"([^"]+)"/g;
+                const titlePattern = /"(?:title|event_title)"\s*:\s*"([^"]+)"/g;
+                const urlPattern = /"url"\s*:\s*"([^"]+)"/g;
+                const ridPattern = /"rid"\s*:\s*"([^"]+)"/g;
+                const docidPattern = /"docid"\s*:\s*"([^"]+)"/g;
+
+                let idMatch;
+                const ids = [];
+                while ((idMatch = idPattern.exec(responseText)) !== null) {
+                    ids.push({ index: idMatch.index, id: idMatch[1] });
+                }
+
+                console.log('Found', ids.length, 'IDs via manual extraction');
+
+                // For each ID, try to extract other fields nearby
+                ids.forEach(({ index, id }) => {
+                    // Look in a window around this ID (500 chars before and after)
+                    const start = Math.max(0, index - 500);
+                    const end = Math.min(responseText.length, index + 500);
+                    const snippet = responseText.substring(start, end);
+
+                    const titleMatch = /"(?:title|event_title)"\s*:\s*"([^"]+)"/.exec(snippet);
+                    const urlMatch = /"url"\s*:\s*"([^"]+)"/.exec(snippet);
+                    const ridMatch = /"rid"\s*:\s*"([^"]+)"/.exec(snippet);
+                    const docidMatch = /"docid"\s*:\s*"([^"]+)"/.exec(snippet);
+
+                    const source = {
+                        id: id,
+                        title: titleMatch ? titleMatch[1] : 'Untitled',
+                        url: urlMatch ? urlMatch[1] : '',
+                        rid: ridMatch ? ridMatch[1] : '',
+                        docid: docidMatch ? docidMatch[1] : ''
+                    };
+
+                    // Only add if we have at least one source field
+                    if (source.url || source.rid || source.docid) {
+                        console.log('Adding source via manual extraction:', source);
+                        sources.push(source);
+                    }
+                });
+            }
+
+            console.log('Total sources extracted:', sources.length);
+        } catch (error) {
+            console.error('Error extracting sources:', error);
+        }
+
+        return sources;
+    }
+
+    displaySources(sources) {
+        console.log('displaySources called with', sources ? sources.length : 0, 'sources');
+
+        if (!sources || sources.length === 0) {
+            console.log('No sources to display, returning early');
+            return;
+        }
+
+        // Remove duplicates based on id
+        const uniqueSources = sources.filter((source, index, self) =>
+            index === self.findIndex((s) => s.id === source.id)
+        );
+
+        console.log('After deduplication:', uniqueSources.length, 'unique sources');
+
+        // Create sources HTML
+        const sourcesHtml = uniqueSources.map((source, index) => `
+            <div class="source-item" data-source-id="${source.id}">
+                <div class="source-number">${index + 1}</div>
+                <div class="source-details">
+                    <div class="source-title">${this.escapeHtml(source.title)}</div>
+                    ${source.url ? `
+                        <div class="source-url">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                            </svg>
+                            <a href="${source.url}" target="_blank" rel="noopener noreferrer">${this.truncateUrl(source.url)}</a>
+                        </div>
+                    ` : ''}
+                    ${source.rid ? `<div class="source-meta">RID: ${this.escapeHtml(source.rid)}</div>` : ''}
+                    ${source.docid ? `<div class="source-meta">Doc ID: ${this.escapeHtml(source.docid)}</div>` : ''}
+                </div>
+            </div>
+        `).join('');
+
+        const html = `
+            <div class="sources-header">
+                <span class="sources-count">${uniqueSources.length} source${uniqueSources.length !== 1 ? 's' : ''} found</span>
+            </div>
+            <div class="sources-list">
+                ${sourcesHtml}
+            </div>
+        `;
+
+        console.log('Setting sources container HTML, length:', html.length);
+        this.sourcesContainer.innerHTML = html;
+        console.log('Sources container updated successfully');
+
+        // Show the sources toggle button
+        this.rightSidebarToggleBtn.classList.remove('hidden');
+
+        // Automatically show the right sidebar when sources are available
+        if (!this.rightSidebarVisible) {
+            console.log('Auto-showing right sidebar with sources');
+            this.rightSidebarVisible = true;
+            this.rightSidebar.classList.remove('sidebar-hidden');
+            this.rightSidebar.classList.add('sidebar-visible');
+            this.mainContent.classList.remove('right-sidebar-hidden');
+            localStorage.setItem('rightSidebarVisible', this.rightSidebarVisible);
+        }
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    truncateUrl(url, maxLength = 50) {
+        if (url.length <= maxLength) return url;
+        return url.substring(0, maxLength - 3) + '...';
     }
 
 
@@ -364,6 +619,7 @@ class AgenticSearch {
         let currentStepChain = null;
         let finalResponseStarted = false;
         let htmlContentMode = false;
+        let accumulatedResponseText = ''; // Accumulate response for source extraction
 
         try {
             while (true) {
@@ -377,8 +633,12 @@ class AgenticSearch {
                     if (!line.trim()) continue;
 
                     if (line.startsWith('PROCESSING_STEP:')) {
+                        const processStepText = line.substring(16);
+                        // Always accumulate for source extraction (regardless of showThinking)
+                        accumulatedResponseText += processStepText + '\n';
+
+                        // Only display if showThinking is enabled
                         if (this.showThinking) {
-                            const processStepText = line.substring(16);
                             // All thinking_steps entries go directly to processing chain
                             this.addProgressToChain(processStepText);
                         }
@@ -416,9 +676,11 @@ class AgenticSearch {
                         if (htmlContentMode) {
                             // For HTML content, use innerHTML directly
                             currentAssistantMessage.innerHTML += line;
+                            accumulatedResponseText += line + '\n';
                         } else {
                             // For regular text, append normally
                             this.appendToMessage(currentAssistantMessage, line);
+                            accumulatedResponseText += line + '\n';
                         }
                     }
                 }
@@ -430,6 +692,21 @@ class AgenticSearch {
             // Add explanation toggle button after streaming completes
             if (finalResponseStarted) {
                 this.addExplanationToggle();
+            }
+
+            // Extract and display sources from accumulated response
+            console.log('Accumulated response text length:', accumulatedResponseText.length);
+            console.log('Accumulated response preview:', accumulatedResponseText.substring(0, 1000));
+
+            if (accumulatedResponseText) {
+                const sources = this.extractSourcesFromResponse(accumulatedResponseText);
+                console.log('Extracted sources count:', sources.length);
+                if (sources.length > 0) {
+                    console.log('Displaying sources:', sources);
+                    this.displaySources(sources);
+                } else {
+                    console.warn('No sources found in response');
+                }
             }
         }
     }
