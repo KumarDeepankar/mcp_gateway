@@ -157,10 +157,8 @@ AsyncGenerator[str, None]:
             state_snapshot = await search_compiled_agent.aget_state(config)
             if state_snapshot and state_snapshot.values:
                 conversation_history = state_snapshot.values.get("conversation_history", [])
-                print(f"[DEBUG] Retrieved conversation_history: {len(conversation_history)} turns")
         except Exception as e:
             # First query in this session - no history available yet
-            print(f"[DEBUG] Error retrieving state: {e}")
             pass
 
         inputs = {
@@ -183,12 +181,22 @@ AsyncGenerator[str, None]:
         final_response_content = ""
         sent_thinking_steps = set()  # Track which thinking steps we've already sent (by content)
         completed_nodes = set()  # Track which nodes have been completed to avoid duplicate completion messages
+        started_nodes = set()  # Track which nodes have started to avoid duplicate start messages
 
         try:
             async for event in search_compiled_agent.astream_events(inputs, config=config, version="v2"):
                 event_type = event.get("event")
                 event_name = event.get("name")
                 data = event.get("data", {})
+
+                # Send node start notification BEFORE node executes
+                if event_type == "on_chain_start" and event_name in relevant_node_names:
+                    if event_name not in started_nodes:
+                        started_nodes.add(event_name)
+                        # Send node name first, before any thinking steps
+                        node_display_name = event_name.replace('_', ' ').title()
+                        yield f"THINKING:▶ {node_display_name}\n"
+                        await asyncio.sleep(0.01)
 
                 if event_type == "on_chain_end" and event_name in relevant_node_names:
                     node_output = data.get("output")
@@ -265,14 +273,6 @@ AsyncGenerator[str, None]:
             traceback.print_exc()
             yield f"ERROR:A fatal error occurred in the search agent stream: {str(e_main_stream)}\n"
 
-        # After streaming completes, verify the state was saved
-        try:
-            final_state = await search_compiled_agent.aget_state(config)
-            if final_state and final_state.values:
-                conv_hist = final_state.values.get("conversation_history", [])
-                print(f"[DEBUG] After stream complete - conversation_history has {len(conv_hist)} turns")
-        except Exception as e:
-            print(f"[DEBUG] Error checking final state: {e}")
 
     except Exception as e:
         traceback.print_exc()

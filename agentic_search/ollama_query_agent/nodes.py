@@ -8,8 +8,11 @@ from .ollama_client import ollama_client
 from .mcp_tool_client import mcp_tool_client
 from .prompts import (
     create_multi_task_planning_prompt,
-    create_information_synthesis_prompt,
-    create_unified_planning_decision_prompt
+    create_information_synthesis_prompt
+)
+from .html_formatter import (
+    format_task_results_to_html,
+    generate_no_results_html
 )
 
 logger = logging.getLogger(__name__)
@@ -752,61 +755,60 @@ Output valid JSON now:"""
             save_conversation_turn(state, final_response.response_content)
 
         except Exception as json_error:
-            logger.error(f"JSON parsing failed: {json_error}")
-            logger.error(f"Raw response (first 500 chars): {response[:500]}")
+            logger.warning(f"[FALLBACK] LLM synthesis JSON parsing failed: {json_error}")
+            logger.debug(f"[FALLBACK] Raw LLM response (first 500 chars): {response[:500]}")
+            logger.info(f"[FALLBACK] Switching to Python HTML formatter with {len(task_results)} task results")
 
-            # Try alternative: extract HTML directly if JSON parsing fails
-            state["thinking_steps"].append(f"⚠️ JSON parsing failed, attempting HTML extraction")
+            state["thinking_steps"].append(f"⚠️ LLM synthesis failed, using Python HTML formatter")
 
-            # Look for HTML content in the response
-            import re
-            html_match = re.search(r'<div[^>]*>.*?</div>', response, re.DOTALL | re.IGNORECASE)
+            # Use Python formatter as fallback
+            logger.debug(f"[FALLBACK] Calling format_task_results_to_html with query: {state['input']}")
+            fallback_response = format_task_results_to_html(
+                user_query=state["input"],
+                task_results=task_results,
+                sources_used=sources_used,
+                use_rich_formatting=True
+            )
+            logger.info(f"[FALLBACK] Python HTML formatter generated {len(fallback_response)} chars of HTML")
 
-            if html_match:
-                html_content = html_match.group(0)
-                final_response = FinalResponse(
-                    response_content=html_content,
-                    reasoning="Extracted from LLM response (JSON parsing failed)",
-                    information_used=gathered_info
-                )
-                state["final_response"] = final_response
-                state["final_response_generated_flag"] = True
-                save_conversation_turn(state, html_content)
-                state["thinking_steps"].append("✅ Extracted HTML response successfully")
-            else:
-                # Last resort: generate fallback
-                raise json_error
+            final_response = FinalResponse(
+                response_content=fallback_response,
+                reasoning="Python HTML formatter (LLM synthesis failed)",
+                information_used=gathered_info
+            )
+            state["final_response"] = final_response
+            state["final_response_generated_flag"] = True
+            save_conversation_turn(state, fallback_response)
+            state["thinking_steps"].append("✅ Response generated using Python HTML formatter")
 
     except Exception as e:
-        logger.error(f"Error in gather and synthesize: {e}")
-        state["thinking_steps"].append(f"❌ Synthesis failed: {str(e)}")
+        logger.error(f"[FALLBACK] Critical error in gather and synthesize: {e}")
+        logger.info(f"[FALLBACK] Using Python HTML formatter for error recovery")
+        state["thinking_steps"].append(f"❌ Critical error: {str(e)}")
         state["error_message"] = f"Synthesis failed: {str(e)}"
 
-        # Fallback response
-        fallback_response = generate_final_response_from_available_data(state)
+        # Last resort fallback
+        gathered_info = state.get("gathered_information")
+        if gathered_info and gathered_info.task_results:
+            logger.debug(f"[FALLBACK] Error recovery: formatting {len(gathered_info.task_results)} task results")
+            fallback_response = format_task_results_to_html(
+                user_query=state.get("input", ""),
+                task_results=gathered_info.task_results,
+                sources_used=gathered_info.sources_used,
+                use_rich_formatting=True
+            )
+        else:
+            logger.debug(f"[FALLBACK] Error recovery: no task results available")
+            fallback_response = generate_no_results_html(state.get("input", ""))
+
         final_response = FinalResponse(
             response_content=fallback_response,
-            reasoning="Fallback response due to synthesis error",
-            information_used=state.get("gathered_information")
+            reasoning="Python HTML formatter (error recovery)",
+            information_used=gathered_info
         )
         state["final_response"] = final_response
         state["final_response_generated_flag"] = True
         save_conversation_turn(state, fallback_response)
+        logger.info(f"[FALLBACK] Error recovery complete - generated {len(fallback_response)} chars of HTML")
 
     return state
-
-
-def generate_final_response_from_available_data(state: SearchAgentState) -> str:
-    """Generate a simple fallback response when LLM fails"""
-    import html as html_lib
-    query = html_lib.escape(state.get("input", ""))
-    tool_count = len(state.get("tool_execution_results", []))
-
-    return f"""<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 800px; padding: 20px;">
-    <h3 style="color: #e74c3c; margin-bottom: 16px;">⚠️ Response Generation Issue</h3>
-    <p style="margin-bottom: 12px;">I encountered an issue generating a detailed response for: <strong>"{query}"</strong></p>
-    {f'<p style="margin-bottom: 12px; color: #2c3e50;">However, I successfully gathered information from {tool_count} tool(s).</p>' if tool_count > 0 else '<p style="margin-bottom: 12px; color: #666;">No tool results were available.</p>'}
-    <div style="background: #fff3cd; padding: 16px; border-radius: 6px; border-left: 3px solid #ffc107; margin: 16px 0;">
-        <p style="margin: 0; color: #856404; font-size: 0.9em;">💡 <strong>Suggestion:</strong> Please try rephrasing your query or ask a follow-up question for better results.</p>
-    </div>
-</div>"""

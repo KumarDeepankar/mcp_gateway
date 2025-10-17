@@ -73,9 +73,7 @@ class AgenticSearch {
         });
 
         // Processing toggle
-        console.log('Setting up processing toggle button:', this.processingToggleButton);
         this.processingToggleButton.addEventListener('click', () => {
-            console.log('Processing toggle button clicked');
             this.toggleProcessingDisplay();
         });
 
@@ -140,9 +138,7 @@ class AgenticSearch {
     }
 
     toggleProcessingDisplay() {
-        console.log('toggleProcessingDisplay called');
         this.showThinking = !this.showThinking;
-        console.log('New showThinking value:', this.showThinking);
 
         // Update button text
         const label = this.processingToggleButton.querySelector('.tool-label');
@@ -261,21 +257,17 @@ class AgenticSearch {
         // Extract sources from JSON data in the response
         const sources = [];
 
-        console.log('Extracting sources from response text:', responseText.substring(0, 500));
 
         try {
             // Strategy 1: Look for properly formatted JSON arrays (double quotes)
             const jsonArrayPattern = /\[\s*\{[\s\S]*?"(?:url|rid|docid|id)"[\s\S]*?\}\s*\]/g;
             let jsonMatches = responseText.match(jsonArrayPattern);
 
-            console.log('Found proper JSON array matches:', jsonMatches ? jsonMatches.length : 0);
-
             if (jsonMatches) {
                 for (const jsonStr of jsonMatches) {
                     try {
                         const data = JSON.parse(jsonStr);
                         if (Array.isArray(data)) {
-                            console.log('Parsed array with', data.length, 'items');
                             data.forEach(item => {
                                 // Check if item has source fields
                                 if (item.url || item.rid || item.docid || item.id) {
@@ -286,7 +278,6 @@ class AgenticSearch {
                                         title: item.title || item.event_title || 'Untitled',
                                         id: item.id || item.docid || item.rid || Math.random().toString(36).substr(2, 9)
                                     };
-                                    console.log('Adding source:', source);
                                     sources.push(source);
                                 }
                             });
@@ -301,8 +292,6 @@ class AgenticSearch {
             const objectPattern = /\{\s*"id"\s*:\s*"[^"]+"\s*,\s*"score"\s*:[\s\S]*?\}/g;
             const objectMatches = responseText.match(objectPattern);
 
-            console.log('Found JSON object matches:', objectMatches ? objectMatches.length : 0);
-
             if (objectMatches) {
                 for (const objStr of objectMatches) {
                     try {
@@ -315,7 +304,6 @@ class AgenticSearch {
                                 title: item.title || item.event_title || 'Untitled',
                                 id: item.id || item.docid || item.rid || Math.random().toString(36).substr(2, 9)
                             };
-                            console.log('Adding source from object:', source);
                             sources.push(source);
                         }
                     } catch (e) {
@@ -326,7 +314,6 @@ class AgenticSearch {
 
             // Strategy 3: Manual extraction of key fields using regex
             if (sources.length === 0) {
-                console.log('Trying manual extraction...');
                 // Look for patterns like: "id": "...", "title": "...", "url": "..."
                 const idPattern = /"id"\s*:\s*"([^"]+)"/g;
                 const titlePattern = /"(?:title|event_title)"\s*:\s*"([^"]+)"/g;
@@ -339,8 +326,6 @@ class AgenticSearch {
                 while ((idMatch = idPattern.exec(responseText)) !== null) {
                     ids.push({ index: idMatch.index, id: idMatch[1] });
                 }
-
-                console.log('Found', ids.length, 'IDs via manual extraction');
 
                 // For each ID, try to extract other fields nearby
                 ids.forEach(({ index, id }) => {
@@ -364,13 +349,10 @@ class AgenticSearch {
 
                     // Only add if we have at least one source field
                     if (source.url || source.rid || source.docid) {
-                        console.log('Adding source via manual extraction:', source);
                         sources.push(source);
                     }
                 });
             }
-
-            console.log('Total sources extracted:', sources.length);
         } catch (error) {
             console.error('Error extracting sources:', error);
         }
@@ -379,10 +361,7 @@ class AgenticSearch {
     }
 
     displaySources(sources) {
-        console.log('displaySources called with', sources ? sources.length : 0, 'sources');
-
         if (!sources || sources.length === 0) {
-            console.log('No sources to display, returning early');
             return;
         }
 
@@ -390,8 +369,6 @@ class AgenticSearch {
         const uniqueSources = sources.filter((source, index, self) =>
             index === self.findIndex((s) => s.id === source.id)
         );
-
-        console.log('After deduplication:', uniqueSources.length, 'unique sources');
 
         // Create sources HTML
         const sourcesHtml = uniqueSources.map((source, index) => `
@@ -423,16 +400,13 @@ class AgenticSearch {
             </div>
         `;
 
-        console.log('Setting sources container HTML, length:', html.length);
         this.sourcesContainer.innerHTML = html;
-        console.log('Sources container updated successfully');
 
         // Show the sources toggle button
         this.rightSidebarToggleBtn.classList.remove('hidden');
 
         // Automatically show the right sidebar when sources are available
         if (!this.rightSidebarVisible) {
-            console.log('Auto-showing right sidebar with sources');
             this.rightSidebarVisible = true;
             this.rightSidebar.classList.remove('sidebar-hidden');
             this.rightSidebar.classList.add('sidebar-visible');
@@ -646,10 +620,12 @@ class AgenticSearch {
                         if (this.showThinking) {
                             const thinkingText = line.substring(9);
 
-                            // Check if this is a step completion
-                            if (thinkingText.startsWith('✓ Completed:')) {
-                                this.addStepToChain(thinkingText.substring(13).trim());
+                            // Check if this is a node start message (▶ prefix)
+                            if (thinkingText.startsWith('▶')) {
+                                // Add node start to chain immediately
+                                this.addProgressToChain(thinkingText);
                             }
+                            // Ignore completion messages since we already showed the node at start
                             // All other THINKING messages are ignored to keep it simple
                         }
                     } else if (line.startsWith('ERROR:')) {
@@ -713,17 +689,10 @@ class AgenticSearch {
             }
 
             // Extract and display sources from accumulated response
-            console.log('Accumulated response text length:', accumulatedResponseText.length);
-            console.log('Accumulated response preview:', accumulatedResponseText.substring(0, 1000));
-
             if (accumulatedResponseText) {
                 const sources = this.extractSourcesFromResponse(accumulatedResponseText);
-                console.log('Extracted sources count:', sources.length);
                 if (sources.length > 0) {
-                    console.log('Displaying sources:', sources);
                     this.displaySources(sources);
-                } else {
-                    console.warn('No sources found in response');
                 }
             }
         }
@@ -781,8 +750,6 @@ class AgenticSearch {
             return;
         }
 
-        console.log(`Revealing ${elements.length} elements progressively`);
-
         // Progressive reveal each element
         elements.forEach((element, index) => {
             // Wrap element in a reveal container
@@ -793,7 +760,6 @@ class AgenticSearch {
             // Add with delay - progressive reveal
             setTimeout(() => {
                 messageElement.appendChild(revealWrapper);
-                console.log(`Revealed element ${index + 1}/${elements.length}`);
             }, index * 200); // 200ms delay between each element
         });
     }
@@ -834,8 +800,13 @@ class AgenticSearch {
         let icon = '⚡';
         let iconClass = 'progress-icon';
 
-        // Check for decision messages first (highest priority)
-        if (progressText.includes('🤔 Decision: PLAN_AND_EXECUTE')) {
+        // Check for node start messages first (highest priority) - add green checkmark
+        if (progressText.startsWith('▶')) {
+            icon = '✓';
+            iconClass = 'progress-icon node-start-icon';
+        }
+        // Check for decision messages
+        else if (progressText.includes('🤔 Decision: PLAN_AND_EXECUTE')) {
             icon = '🧭';
             iconClass = 'progress-icon decision-planning';
         } else if (progressText.includes('🤔 Decision: EXECUTE_NEXT_STEP')) {
