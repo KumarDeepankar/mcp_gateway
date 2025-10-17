@@ -618,6 +618,8 @@ class AgenticSearch {
         let finalResponseStarted = false;
         let htmlContentMode = false;
         let accumulatedResponseText = ''; // Accumulate response for source extraction
+        let htmlBuffer = ''; // Buffer for accumulating HTML content
+        let messageCentered = false; // Track if we've centered the message
 
         try {
             while (true) {
@@ -659,23 +661,39 @@ class AgenticSearch {
                         this.addResponseSeparator();
                     } else if (line.startsWith('HTML_CONTENT_START:')) {
                         htmlContentMode = true;
+                        htmlBuffer = ''; // Reset buffer
                         if (!currentAssistantMessage) {
                             currentAssistantMessage = this.addMessage('assistant', '');
+                            // Center the message box
+                            setTimeout(() => {
+                                this.scrollToMessage(currentAssistantMessage.parentElement);
+                                messageCentered = true;
+                            }, 100);
                             // Trigger glow effect after message is created
                             setTimeout(() => this.triggerAnswerGlow(), 100);
                         }
                     } else if (line.startsWith('HTML_CONTENT_END:')) {
                         htmlContentMode = false;
+                        // Process accumulated HTML
+                        if (htmlBuffer && currentAssistantMessage) {
+                            this.revealHTMLContent(currentAssistantMessage, htmlBuffer);
+                        }
+                        htmlBuffer = '';
                     } else if (finalResponseStarted) {
                         // This is part of the final response
                         if (!currentAssistantMessage) {
                             currentAssistantMessage = this.addMessage('assistant', '');
+                            // Center the message box
+                            setTimeout(() => {
+                                this.scrollToMessage(currentAssistantMessage.parentElement);
+                                messageCentered = true;
+                            }, 100);
                             // Trigger glow effect after message is created
                             setTimeout(() => this.triggerAnswerGlow(), 100);
                         }
                         if (htmlContentMode) {
-                            // For HTML content, use innerHTML directly
-                            currentAssistantMessage.innerHTML += line;
+                            // Accumulate HTML content
+                            htmlBuffer += line + '\n';
                             accumulatedResponseText += line + '\n';
                         } else {
                             // For regular text, append normally
@@ -733,18 +751,62 @@ class AgenticSearch {
     }
 
     appendToMessage(messageElement, content) {
-        // Check if content contains HTML tags
+        // For streaming content, just append directly
+        // Progressive reveal is handled by revealHTMLContent when HTML_CONTENT_END is received
         if (content.includes('<') && content.includes('>')) {
-            // Content appears to be HTML, use innerHTML
+            // Content appears to be HTML
             messageElement.innerHTML += content;
         } else {
             // Plain text content, use textContent
             messageElement.textContent += content;
         }
         this.scrollToBottom();
-
-        // Adjust input position after appending content
         setTimeout(() => this.adjustInputAreaPosition(), 50);
+    }
+
+    revealHTMLContent(messageElement, htmlContent) {
+        // Clear the message element first
+        messageElement.innerHTML = '';
+
+        // Create a temporary container to parse the HTML
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = htmlContent.trim();
+
+        // Get all child elements (direct children of the div wrapper)
+        const elements = Array.from(tempDiv.children);
+
+        if (elements.length === 0) {
+            // If no block elements, just set innerHTML
+            messageElement.innerHTML = htmlContent;
+            return;
+        }
+
+        console.log(`Revealing ${elements.length} elements progressively`);
+
+        // Progressive reveal each element
+        elements.forEach((element, index) => {
+            // Wrap element in a reveal container
+            const revealWrapper = document.createElement('div');
+            revealWrapper.classList.add('reveal-line');
+            revealWrapper.appendChild(element.cloneNode(true));
+
+            // Add with delay - progressive reveal
+            setTimeout(() => {
+                messageElement.appendChild(revealWrapper);
+                console.log(`Revealed element ${index + 1}/${elements.length}`);
+            }, index * 200); // 200ms delay between each element
+        });
+    }
+
+    scrollToMessage(messageDiv) {
+        // Scroll to center the assistant message box on screen
+        if (messageDiv) {
+            messageDiv.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+                inline: 'nearest'
+            });
+        }
     }
 
     // Removed follow-up button - now using input placeholder only

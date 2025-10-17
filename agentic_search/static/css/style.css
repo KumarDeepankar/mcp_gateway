@@ -1616,6 +1616,24 @@ body.theme-minimal {
     animation-fill-mode: both;
 }
 
+/* Progressive line reveal animation */
+.message.assistant .message-content .reveal-line {
+    opacity: 0;
+    transform: translateY(10px);
+    animation: revealLine 0.4s ease-out forwards;
+}
+
+@keyframes revealLine {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 /* Followup Button Styles - Light & Clean */
 .followup-container {
     margin-top: 1rem;
