@@ -657,12 +657,12 @@ class AgenticSearch {
                         finalResponseStarted = true;
                         // Add a separator before final response
                         this.addResponseSeparator();
-                        // Trigger glow effect on the query container
-                        this.triggerAnswerGlow();
                     } else if (line.startsWith('HTML_CONTENT_START:')) {
                         htmlContentMode = true;
                         if (!currentAssistantMessage) {
                             currentAssistantMessage = this.addMessage('assistant', '');
+                            // Trigger glow effect after message is created
+                            setTimeout(() => this.triggerAnswerGlow(), 100);
                         }
                     } else if (line.startsWith('HTML_CONTENT_END:')) {
                         htmlContentMode = false;
@@ -670,6 +670,8 @@ class AgenticSearch {
                         // This is part of the final response
                         if (!currentAssistantMessage) {
                             currentAssistantMessage = this.addMessage('assistant', '');
+                            // Trigger glow effect after message is created
+                            setTimeout(() => this.triggerAnswerGlow(), 100);
                         }
                         if (htmlContentMode) {
                             // For HTML content, use innerHTML directly
@@ -886,14 +888,18 @@ class AgenticSearch {
     }
 
     triggerAnswerGlow() {
-        // Add glow effect to current query container when final answer appears
+        // Add glow effect to assistant message content when final answer appears
         if (this.currentQueryContainer) {
-            // Only add the class if it doesn't already exist
-            if (!this.currentQueryContainer.classList.contains('answer-glow')) {
-                this.currentQueryContainer.classList.add('answer-glow');
+            // Find the last assistant message's content element
+            const assistantMessages = this.currentQueryContainer.querySelectorAll('.message.assistant .message-content');
+            if (assistantMessages.length > 0) {
+                const lastMessageContent = assistantMessages[assistantMessages.length - 1];
+                // Only add the class if it doesn't already exist
+                if (!lastMessageContent.classList.contains('answer-glow')) {
+                    lastMessageContent.classList.add('answer-glow');
+                }
             }
             // Don't remove the class - let the animation complete and stay at 100% state
-            // which matches the default query-container styles exactly
         }
     }
 

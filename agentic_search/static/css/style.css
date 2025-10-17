@@ -561,7 +561,7 @@ body.theme-minimal {
         0 8px 32px rgba(0, 0, 0, 0.08),
         0 2px 8px rgba(0, 0, 0, 0.04),
         inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    animation: fadeIn 0.3s ease;
+    animation: fadeInUp 0.4s ease;
     position: relative;
     overflow: visible;
 }
@@ -575,36 +575,39 @@ body.theme-minimal {
     margin-bottom: 0;
 }
 
-/* Glow effect for final answer - Shorter & Softer */
+/* Glow effect for final answer - Shorter & Softer - DISABLED FOR QUERY CONTAINER */
 .query-container.answer-glow {
-    animation: answerGlow 1.8s ease-in-out;
-    animation-fill-mode: both;
+    /* animation: answerGlow 1.8s ease-in-out; */
+    /* animation-fill-mode: both; */
 }
 
 @keyframes answerGlow {
     0%, 100% {
         box-shadow:
-            0 2px 8px rgba(0, 0, 0, 0.03),
-            0 1px 3px rgba(0, 0, 0, 0.02);
-        border-color: rgba(229, 231, 235, 0.6);
+            0 4px 12px rgba(0, 0, 0, 0.06),
+            0 1px 4px rgba(0, 147, 208, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        border-color: rgba(255, 255, 255, 0.7);
     }
     20% {
         box-shadow:
-            0 0 15px 3px rgba(0, 147, 208, 0.3),
-            0 0 30px 6px rgba(51, 172, 221, 0.2),
-            0 0 45px 9px rgba(102, 197, 232, 0.15),
-            0 2px 8px rgba(0, 0, 0, 0.03),
-            0 1px 3px rgba(0, 0, 0, 0.02);
-        border-color: rgba(0, 147, 208, 0.4);
+            0 0 15px 3px rgba(0, 147, 208, 0.4),
+            0 0 30px 6px rgba(51, 172, 221, 0.3),
+            0 0 45px 9px rgba(102, 197, 232, 0.2),
+            0 4px 12px rgba(0, 0, 0, 0.06),
+            0 1px 4px rgba(0, 147, 208, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        border-color: rgba(0, 147, 208, 0.5);
     }
     50% {
         box-shadow:
-            0 0 18px 4px rgba(0, 147, 208, 0.35),
-            0 0 35px 7px rgba(51, 172, 221, 0.25),
-            0 0 50px 10px rgba(102, 197, 232, 0.18),
-            0 2px 8px rgba(0, 0, 0, 0.03),
-            0 1px 3px rgba(0, 0, 0, 0.02);
-        border-color: rgba(0, 147, 208, 0.45);
+            0 0 20px 5px rgba(0, 147, 208, 0.5),
+            0 0 40px 10px rgba(51, 172, 221, 0.35),
+            0 0 60px 15px rgba(102, 197, 232, 0.25),
+            0 4px 12px rgba(0, 0, 0, 0.06),
+            0 1px 4px rgba(0, 147, 208, 0.1),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        border-color: rgba(0, 147, 208, 0.6);
     }
 }
 
@@ -1203,7 +1206,7 @@ body.theme-minimal {
 
 /* Processing Steps - Enhanced Glassmorphism */
 .step-chain {
-    margin: 16px 0 20px 20px;
+    margin: 16px 0 20px 0;
     padding: 14px 16px 14px 20px;
     background: rgba(248, 250, 252, 0.5);
     backdrop-filter: blur(16px) saturate(150%);
@@ -1221,7 +1224,7 @@ body.theme-minimal {
     -moz-osx-font-smoothing: grayscale;
     transition: all 0.3s ease;
     overflow: visible;
-    max-width: 88%;
+    max-width: 98%;
 }
 
 /* Add extra bottom margin when expanded to prevent overlap */
@@ -1587,7 +1590,9 @@ body.theme-minimal {
 
 /* Enhanced Message Styling - Glassmorphism */
 .message.assistant .message-content {
+    display: block;
     max-width: 98%;
+    width: 98%;
     background: rgba(255, 255, 255, 0.6);
     backdrop-filter: blur(12px) saturate(150%);
     -webkit-backdrop-filter: blur(12px) saturate(150%);
@@ -1602,6 +1607,13 @@ body.theme-minimal {
     padding: 14px 18px;
     line-height: 1.7;
     font-size: 13px;
+    animation: fadeInUp 0.3s ease;
+}
+
+/* Glow effect for assistant message answer */
+.message.assistant .message-content.answer-glow {
+    animation: answerGlow 1.8s ease-in-out;
+    animation-fill-mode: both;
 }
 
 /* Followup Button Styles - Light & Clean */
