@@ -93,7 +93,7 @@ def create_information_synthesis_prompt(
     gathered_information: Dict[str, Any],
     conversation_history: List[Dict[str, Any]] = None
 ) -> str:
-    """Enhanced synthesis prompt for rich structured HTML"""
+    """Advanced synthesis prompt using CoT, role-based prompting, and structured reasoning"""
 
     context = format_conversation_context(conversation_history, max_turns=2)
     results = gathered_information.get("task_results", [])
@@ -119,36 +119,106 @@ def create_information_synthesis_prompt(
     if len(results) > 8:
         results_text += f"\n... and {len(results) - 8} more sources"
 
-    return f"""Create structured HTML response from the data below. Output ONLY valid JSON.
+    return f"""<role>You are an expert data analyst and technical writer. Your specialty is transforming raw data from multiple sources into clear, insightful narratives that directly answer user questions. You excel at extracting key insights, identifying patterns, and presenting information in well-structured HTML format.</role>
 
-Query: {user_query}{context}
+<task>Analyze the source data below and create a comprehensive narrative response to the user's query. DO NOT echo the raw data structure - instead, synthesize the information into a cohesive story.</task>
 
-Data from {gathered_information.get("completed_tasks", 0)} sources:
+<user_query>{user_query}</user_query>{context}
+
+<source_data>
 {results_text}
+</source_data>
 
-HTML REQUIREMENTS:
-- Use h3, h4, p, ul/li, strong tags
-- Tables: style='width:100%;border-collapse:collapse;margin:15px 0;'
-- Single quotes in HTML (avoid escaping complexity)
-- Clean, professional formatting
+<reasoning_process>
+Follow this Chain of Thought process:
 
-CRITICAL JSON RULES:
-1. Output ONLY JSON - no markdown, no code blocks, no extra text
-2. Two fields ONLY: "reasoning" and "response_content"
-3. HTML must be on ONE LINE inside "response_content" string
-4. NO newlines/line breaks inside JSON string values
-5. NO control characters (tabs, returns, etc)
-6. Start with {{ and end with }}
-7. Use double quotes for JSON keys/values
-8. Escape any double quotes inside HTML with backslash
+STEP 1 - COMPREHENSION:
+- What is the user really asking for?
+- What type of answer would best serve their needs? (comparison, overview, analysis, trends, specific facts)
 
-CORRECT FORMAT:
-{{"reasoning":"Brief analysis","response_content":"<div><h3>Title</h3><p>Content with <strong>emphasis</strong>.</p></div>"}}
+STEP 2 - DATA EXTRACTION:
+- Read through ALL source data carefully
+- Extract key facts: numbers, names, dates, locations, categories, trends
+- Identify patterns, anomalies, or interesting insights
+- Note any data quality issues or gaps
 
-Example 1 - List format:
-{{"reasoning":"Found 23 tech events in Denmark","response_content":"<div><h3>Technology Events in Denmark</h3><p>Discovered <strong>23 events</strong> across multiple cities.</p><h4>Key Findings</h4><ul><li><strong>Copenhagen Summit</strong> - 5,000 attendees</li><li><strong>AI Conference 2024</strong> - Focus on machine learning</li><li><strong>Tech Meetup</strong> - 500 participants</li></ul><p>Geographic distribution: Copenhagen (<strong>18</strong>), Aarhus (<strong>5</strong>).</p></div>"}}
+STEP 3 - SYNTHESIS STRATEGY:
+- Decide on narrative structure (chronological, comparative, categorical, problem-solution)
+- Plan sections: what should come first, what's most important
+- Choose appropriate visualizations (tables for comparisons, lists for items, paragraphs for explanation)
 
-Example 2 - Comparison with table:
-{{"reasoning":"Compared event activity between two countries","response_content":"<div><h3>Denmark vs Dominica: Event Comparison</h3><p>Denmark shows significantly higher event activity with <strong>45 events</strong> compared to Dominica's <strong>3 events</strong>.</p><table style='width:100%;border-collapse:collapse;margin:15px 0;'><thead><tr style='border-bottom:2px solid #333;background:#f5f5f5;'><th style='padding:10px;text-align:left;'>Country</th><th style='padding:10px;text-align:left;'>Total Events</th><th style='padding:10px;text-align:left;'>Avg Attendance</th></tr></thead><tbody><tr style='border-bottom:1px solid #ddd;'><td style='padding:10px;'>Denmark</td><td style='padding:10px;'>45</td><td style='padding:10px;'>250</td></tr><tr style='border-bottom:1px solid #ddd;'><td style='padding:10px;'>Dominica</td><td style='padding:10px;'>3</td><td style='padding:10px;'>80</td></tr></tbody></table><p>Denmark's event ecosystem is approximately <strong>15x larger</strong> in scale.</p></div>"}}
+STEP 4 - CONTENT CREATION:
+- Write a compelling opening that directly addresses the query
+- Develop 3-5 main sections with clear headings
+- Use specific numbers and facts from the data (never make up information)
+- Add context and interpretation where helpful
+- Include a brief summary or key takeaway if appropriate
 
-NOW GENERATE - Remember: ONE LINE of JSON, NO newlines inside strings:"""
+STEP 5 - HTML FORMATTING:
+- Structure content with h3 (main title), h4 (section headings), p (paragraphs), ul/li (lists), table (data comparisons)
+- Use <strong> for emphasis on key numbers and terms
+- Add inline styles for tables: style='width:100%;border-collapse:collapse;margin:15px 0;'
+- Keep HTML clean and on ONE CONTINUOUS LINE (no newlines)
+</reasoning_process>
+
+<content_requirements>
+✓ DO: Extract and synthesize information into narrative form
+✓ DO: Include specific numbers, names, dates, locations from the data
+✓ DO: Create clear sections with descriptive headings (h3, h4)
+✓ DO: Use tables to compare multiple items or show structured data
+✓ DO: Write 300-800 words across multiple sections
+✓ DO: Provide insights and interpretation, not just facts
+✓ DO: Answer the user's question directly and completely
+
+✗ DON'T: Copy the source data structure (task_number, tool_name, result objects)
+✗ DON'T: Use technical field names from tools in your response
+✗ DON'T: Leave the data uninterpreted - always add context
+✗ DON'T: Make up information not present in the source data
+✗ DON'T: Use vague language - be specific with numbers and facts
+✗ DON'T: Create overly long paragraphs - break into digestible sections
+</content_requirements>
+
+<html_guidelines>
+• Main title: <h3>Title</h3>
+• Section headings: <h4>Section Name</h4>
+• Paragraphs: <p>Content with <strong>emphasis</strong> on key points.</p>
+• Bullet lists: <ul><li>Item one</li><li>Item two</li></ul>
+• Tables: <table style='width:100%;border-collapse:collapse;margin:15px 0;'><tr><th style='border-bottom:2px solid #333;background:#f5f5f5;padding:8px;text-align:left;'>Header</th></tr><tr><td style='padding:8px;border-bottom:1px solid #ddd;'>Data</td></tr></table>
+• Use single quotes for ALL HTML attributes
+• Keep ALL HTML on ONE LINE (critical for JSON validity)
+</html_guidelines>
+
+<output_format>
+CRITICAL: Output EXACTLY ONE LINE of JSON with this structure:
+{{"reasoning":"Your 1-2 sentence analysis strategy","response_content":"<div>YOUR FULL HTML RESPONSE HERE</div>"}}
+
+Rules:
+1. Start with {{ and end with }}
+2. Two fields only: "reasoning" and "response_content"
+3. NO newlines, tabs, or control characters inside string values
+4. NO markdown formatting, NO code blocks
+5. ALL HTML must be on ONE continuous line inside response_content
+6. Use double quotes for JSON structure, single quotes for HTML attributes
+7. Escape any internal double quotes with backslash if needed
+</output_format>
+
+<examples>
+Example 1 - Simple Query:
+Query: "How many events in Denmark?"
+Good: {{"reasoning":"Counted total events from search results","response_content":"<div><h3>Denmark Events Overview</h3><p>Based on the search results, Denmark hosted <strong>47 events</strong> across various categories. The events were distributed across major cities, with Copenhagen accounting for <strong>31 events</strong> (66%) and Aarhus hosting <strong>16 events</strong> (34%).</p><h4>Key Statistics</h4><ul><li>Total events: 47</li><li>Average attendance: 180 participants</li><li>Most common category: Technology (18 events)</li></ul></div>"}}
+
+Example 2 - Comparative Query:
+Query: "Compare AI conferences between USA and UK"
+Good: {{"reasoning":"Analyzed conference data from both countries focusing on size, topics, and attendance","response_content":"<div><h3>USA vs UK AI Conference Comparison</h3><p>Both countries demonstrated strong AI conference activity, with distinct characteristics in each market.</p><h4>Volume and Scale</h4><p>The <strong>USA hosted 89 AI conferences</strong> compared to the UK's <strong>34 conferences</strong>. However, UK conferences showed higher average attendance at <strong>520 participants</strong> versus <strong>380 in the USA</strong>, suggesting more consolidated events.</p><h4>Regional Distribution</h4><table style='width:100%;border-collapse:collapse;margin:15px 0;'><tr><th style='border-bottom:2px solid #333;background:#f5f5f5;padding:8px;text-align:left;'>Metric</th><th style='border-bottom:2px solid #333;background:#f5f5f5;padding:8px;text-align:left;'>USA</th><th style='border-bottom:2px solid #333;background:#f5f5f5;padding:8px;text-align:left;'>UK</th></tr><tr><td style='padding:8px;border-bottom:1px solid #ddd;'>Total Conferences</td><td style='padding:8px;border-bottom:1px solid #ddd;'>89</td><td style='padding:8px;border-bottom:1px solid #ddd;'>34</td></tr><tr><td style='padding:8px;border-bottom:1px solid #ddd;'>Avg Attendance</td><td style='padding:8px;border-bottom:1px solid #ddd;'>380</td><td style='padding:8px;border-bottom:1px solid #ddd;'>520</td></tr><tr><td style='padding:8px;border-bottom:1px solid #ddd;'>Top Location</td><td style='padding:8px;border-bottom:1px solid #ddd;'>San Francisco (23)</td><td style='padding:8px;border-bottom:1px solid #ddd;'>London (28)</td></tr></table><h4>Topic Focus</h4><p>USA conferences emphasized <strong>applied AI and enterprise applications</strong>, while UK events focused more on <strong>AI ethics and policy frameworks</strong>.</p></div>"}}
+
+Example 3 - BAD (echoing data structure):
+{{"task_results":[{{"task_number":1,"tool_name":"search_events","result":{{"events":[{{"id":"evt_123","name":"Conference"}}]}}}}]}}
+❌ This is WRONG - it's just copying the source data structure!
+
+Example 4 - BAD (incomplete synthesis):
+{{"reasoning":"Found events","response_content":"<div><p>There are events in the database.</p></div>"}}
+❌ This is WRONG - too vague, no specific numbers or insights!
+</examples>
+
+<final_instruction>
+Now, following the Chain of Thought reasoning process above, analyze the source data and generate ONE LINE of JSON containing your synthesized narrative response. Remember: synthesize and interpret the data, don't echo it!</final_instruction>"""

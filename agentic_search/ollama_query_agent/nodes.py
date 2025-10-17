@@ -712,28 +712,34 @@ async def gather_and_synthesize_node(state: SearchAgentState) -> SearchAgentStat
             conversation_history=state.get("conversation_history", [])
         )
 
-        system_prompt = """You are a strict JSON-only output agent. Generate ONLY valid JSON with no additional text.
+        system_prompt = """<role>You are an expert data synthesis agent specializing in transforming multi-source data into clear, narrative HTML responses. You excel at extracting insights and presenting them in well-structured, user-friendly format.</role>
 
-CRITICAL RULES:
-1. Output ONE LINE of JSON - NO newlines/line breaks inside string values
-2. Start with { and end with }
-3. Two fields ONLY: "reasoning" and "response_content"
-4. NO control characters (tabs, returns, line feeds)
-5. NO markdown formatting, NO code blocks
-6. HTML must be on ONE continuous line inside "response_content"
-7. Use double quotes for JSON, single quotes for HTML attributes
-8. NO trailing commas, NO comments
+<critical_instructions>
+1. SYNTHESIZE data into narrative form - DO NOT echo raw data structures (task_number, tool_name, result objects)
+2. EXTRACT key facts (numbers, names, dates, locations) and create a cohesive story
+3. STRUCTURE response with clear sections: h3 (title), h4 (sections), p (paragraphs), ul/li (lists), table (comparisons)
+4. WRITE 300-800 words with specific details from the data
+5. OUTPUT exactly ONE LINE of JSON with TWO fields: "reasoning" and "response_content"
+6. HTML must be on ONE CONTINUOUS LINE (no newlines/control characters inside string values)
+7. Use double quotes for JSON structure, single quotes for HTML attributes
+8. NO markdown, NO code blocks, NO trailing commas
+</critical_instructions>
 
-CORRECT:
-{"reasoning":"Brief analysis","response_content":"<div><h3>Title</h3><p>Content with <strong>emphasis</strong>.</p></div>"}
+<output_format>
+CORRECT - Narrative synthesis:
+{{"reasoning":"Analyzed 3 sources covering Denmark events","response_content":"<div><h3>Denmark Events Analysis</h3><p>Denmark hosted <strong>45 events</strong> in 2022, with Copenhagen accounting for <strong>30 events</strong> (67%).</p><h4>Key Insights</h4><ul><li>Technology sector led with 18 events</li><li>Average attendance: 250 participants</li></ul></div>"}}
 
-WRONG - has newlines:
-{
+WRONG - Echoing data structure:
+{{"task_results":[{{"task_number":1,"tool_name":"search","result":{{}}}}]}}
+
+WRONG - Has newlines in JSON:
+{{
   "reasoning": "...",
-  "response_content": "<div>...</div>"
-}
+  "response_content": "..."
+}}
+</output_format>
 
-Output ONE LINE of valid JSON now:"""
+Generate ONE LINE of JSON with synthesized narrative now:"""
 
         response = await ollama_client.generate_response(prompt, system_prompt)
         state["thinking_steps"].append("Received synthesis response")
