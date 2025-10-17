@@ -133,31 +133,89 @@ def create_information_synthesis_prompt(
     context = format_conversation_context(conversation_history, max_turns=2)
     results = gathered_information.get("task_results", [])
 
-    return f"""Transform tool data into comprehensive response.
+    # Format results in a clear, structured way (not as raw JSON dump)
+    formatted_results = []
+    for idx, r in enumerate(results[:8], 1):  # Show up to 8 results
+        result_text = f"SOURCE {idx}:\n"
+        result_text += f"  Tool: {r.get('tool_name', 'unknown')}\n"
+        result_text += f"  Task: {r.get('description', 'N/A')}\n"
+
+        # Extract and format the actual data
+        result_data = r.get('result', {})
+        if isinstance(result_data, dict):
+            if 'error' in result_data:
+                result_text += f"  Status: Error - {result_data['error'][:150]}\n"
+            else:
+                # Show the actual data in a readable format
+                result_text += f"  Status: Success\n"
+                result_text += f"  Data: {json.dumps(result_data, indent=4)[:800]}\n"
+
+        formatted_results.append(result_text)
+
+    results_text = "\n".join(formatted_results)
+    if len(results) > 8:
+        results_text += f"\n... and {len(results) - 8} more data sources available"
+
+    return f"""You must synthesize the tool results into a comprehensive HTML response.
+
+CRITICAL INSTRUCTION: DO NOT echo back the source data structure below. Your job is to ANALYZE this data and CREATE a new, synthesized HTML response in the required JSON format.
 
 <query>{user_query}</query>{context}
 
-<data>
-Completed: {gathered_information.get("completed_tasks", 0)}/{gathered_information.get("total_tasks", 0)} tasks
-Results: {json.dumps(results[:5], indent=2)}{"..." if len(results) > 5 else ""}
-</data>
+<source_data>
+Status: Completed {gathered_information.get("completed_tasks", 0)}/{gathered_information.get("total_tasks", 0)} tasks
 
-<format_requirements>
-1. DATA-DRIVEN: Use specific numbers, names, dates from results
-2. STRUCTURED: Clear h3/h4 headings, organized sections
-3. COMPREHENSIVE: 300-800 words, multiple sections
-4. FORMAL: Simple HTML (h3, h4, p, ul, li, strong, table)
-5. NO STYLING: No colors, gradients, or fancy CSS
-</format_requirements>
+{results_text}
+</source_data>
 
-<example>
+<required_output_format>
+You MUST output a JSON object with exactly TWO fields:
+1. "reasoning" - Brief explanation of your synthesis approach (1-2 sentences)
+2. "response_content" - The complete HTML response as a SINGLE-LINE string
+
+DO NOT output:
+- The source data structure
+- Fields like "data", "task_number", "tool_name", "arguments", "result"
+- Any structure that resembles the input data
+
+ONLY output the synthesis in this exact format:
 {{
-  "reasoning": "Analyzed results from tasks, structured comparison with stats and insights",
-  "response_content": "<div><h3>Analysis Results</h3><p>Based on <strong>X events</strong> from data:</p><h4>Key Findings</h4><ul><li><strong>Metric 1:</strong> Value and context</li><li><strong>Metric 2:</strong> Value and context</li></ul><h4>Statistical Overview</h4><table style='width:100%;border-collapse:collapse;margin:20px 0;'><thead><tr style='border-bottom:2px solid #333;'><th style='padding:12px;text-align:left;'>Item</th><th style='padding:12px;text-align:left;'>Value</th></tr></thead><tbody><tr><td style='padding:10px;border-bottom:1px solid #ddd;'>Total</td><td style='padding:10px;border-bottom:1px solid #ddd;'>123</td></tr></tbody></table><h4>Insights</h4><p><strong>Key insight:</strong> Detailed analysis with supporting evidence from the data.</p></div>"
+  "reasoning": "your synthesis approach here",
+  "response_content": "<div>your complete HTML here</div>"
 }}
-</example>
+</required_output_format>
 
-Generate JSON response (single-line HTML, 300+ words):"""
+<synthesis_requirements>
+1. ANALYZE the source data above and extract key information
+2. CREATE a narrative response with clear sections (h3/h4 headings)
+3. INCLUDE specific details: numbers, names, dates from the data
+4. FORMAT as simple HTML (h3, h4, p, ul, li, strong, table - no fancy CSS)
+5. WRITE 300-800 words with multiple sections
+6. ENSURE all HTML is on a SINGLE LINE (no newlines in response_content string)
+</synthesis_requirements>
+
+<correct_example>
+{{
+  "reasoning": "Analyzed event data from Denmark and created structured comparison",
+  "response_content": "<div><h3>Event Analysis Results</h3><p>Based on data from 2 sources, I found <strong>15 technology events</strong> in Denmark from 2022.</p><h4>Key Events</h4><ul><li><strong>TechConf 2022:</strong> Major technology conference in Copenhagen</li><li><strong>DevSummit:</strong> Developer-focused event in Aarhus</li></ul><h4>Statistics</h4><p>Total events: 15, Average attendance: 250 participants</p></div>"
+}}
+</correct_example>
+
+<wrong_example>
+DO NOT output like this:
+{{
+  "data": [
+    {{
+      "task_number": 1,
+      "tool_name": "filter_events",
+      "result": {{...}}
+    }}
+  ]
+}}
+This is WRONG - it's just echoing the source data!
+</wrong_example>
+
+Now generate your JSON response with "reasoning" and "response_content" fields:"""
 
 
 def create_reasoning_response_prompt(
