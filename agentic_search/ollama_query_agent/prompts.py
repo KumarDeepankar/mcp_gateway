@@ -119,34 +119,36 @@ def create_information_synthesis_prompt(
     if len(results) > 8:
         results_text += f"\n... and {len(results) - 8} more sources"
 
-    return f"""Create a structured HTML response with the data below.
+    return f"""Create structured HTML response from the data below. Output ONLY valid JSON.
 
 Query: {user_query}{context}
 
 Data from {gathered_information.get("completed_tasks", 0)} sources:
 {results_text}
 
-Structure: h3 title, paragraph summary, h4 sections, bullet lists (ul/li), comparison tables when needed.
-Use <strong> for numbers/emphasis. Clean professional HTML only.
+HTML REQUIREMENTS:
+- Use h3, h4, p, ul/li, strong tags
+- Tables: style='width:100%;border-collapse:collapse;margin:15px 0;'
+- Single quotes in HTML (avoid escaping complexity)
+- Clean, professional formatting
 
-Table format: <table style='width:100%;border-collapse:collapse;margin:15px 0;'><thead><tr style='border-bottom:2px solid #333;background:#f5f5f5;'><th style='padding:10px;text-align:left;'>Col</th></tr></thead><tbody><tr style='border-bottom:1px solid #ddd;'><td style='padding:10px;'>Data</td></tr></tbody></table>
+CRITICAL JSON RULES:
+1. Output ONLY JSON - no markdown, no code blocks, no extra text
+2. Two fields ONLY: "reasoning" and "response_content"
+3. HTML must be on ONE LINE inside "response_content" string
+4. NO newlines/line breaks inside JSON string values
+5. NO control characters (tabs, returns, etc)
+6. Start with {{ and end with }}
+7. Use double quotes for JSON keys/values
+8. Escape any double quotes inside HTML with backslash
 
-Example - List:
-{{
-  "reasoning": "Compiled tech events",
-  "response_content": "<div><h3>Tech Events Found</h3><p>Found <strong>23 events</strong> in Denmark.</p><h4>Highlights</h4><ul><li><strong>Copenhagen Summit</strong> - 5,000 attendees</li><li><strong>AI Conference</strong> - Focus on ML</li></ul><p>Most events in Copenhagen (<strong>18</strong>) vs Aarhus (<strong>5</strong>).</p></div>"
-}}
+CORRECT FORMAT:
+{{"reasoning":"Brief analysis","response_content":"<div><h3>Title</h3><p>Content with <strong>emphasis</strong>.</p></div>"}}
 
-Example - Comparison:
-{{
-  "reasoning": "Compared two countries",
-  "response_content": "<div><h3>Denmark vs Dominica</h3><p>Denmark has <strong>45 events</strong> vs Dominica's <strong>3 events</strong>.</p><table style='width:100%;border-collapse:collapse;margin:15px 0;'><thead><tr style='border-bottom:2px solid #333;background:#f5f5f5;'><th style='padding:10px;text-align:left;'>Country</th><th style='padding:10px;text-align:left;'>Events</th><th style='padding:10px;text-align:left;'>Avg Attendance</th></tr></thead><tbody><tr style='border-bottom:1px solid #ddd;'><td style='padding:10px;'>Denmark</td><td style='padding:10px;'>45</td><td style='padding:10px;'>250</td></tr><tr style='border-bottom:1px solid #ddd;'><td style='padding:10px;'>Dominica</td><td style='padding:10px;'>3</td><td style='padding:10px;'>80</td></tr></tbody></table></div>"
-}}
+Example 1 - List format:
+{{"reasoning":"Found 23 tech events in Denmark","response_content":"<div><h3>Technology Events in Denmark</h3><p>Discovered <strong>23 events</strong> across multiple cities.</p><h4>Key Findings</h4><ul><li><strong>Copenhagen Summit</strong> - 5,000 attendees</li><li><strong>AI Conference 2024</strong> - Focus on machine learning</li><li><strong>Tech Meetup</strong> - 500 participants</li></ul><p>Geographic distribution: Copenhagen (<strong>18</strong>), Aarhus (<strong>5</strong>).</p></div>"}}
 
-JSON output:
-{{
-  "reasoning": "your approach",
-  "response_content": "<div>your HTML</div>"
-}}
+Example 2 - Comparison with table:
+{{"reasoning":"Compared event activity between two countries","response_content":"<div><h3>Denmark vs Dominica: Event Comparison</h3><p>Denmark shows significantly higher event activity with <strong>45 events</strong> compared to Dominica's <strong>3 events</strong>.</p><table style='width:100%;border-collapse:collapse;margin:15px 0;'><thead><tr style='border-bottom:2px solid #333;background:#f5f5f5;'><th style='padding:10px;text-align:left;'>Country</th><th style='padding:10px;text-align:left;'>Total Events</th><th style='padding:10px;text-align:left;'>Avg Attendance</th></tr></thead><tbody><tr style='border-bottom:1px solid #ddd;'><td style='padding:10px;'>Denmark</td><td style='padding:10px;'>45</td><td style='padding:10px;'>250</td></tr><tr style='border-bottom:1px solid #ddd;'><td style='padding:10px;'>Dominica</td><td style='padding:10px;'>3</td><td style='padding:10px;'>80</td></tr></tbody></table><p>Denmark's event ecosystem is approximately <strong>15x larger</strong> in scale.</p></div>"}}
 
-Generate:"""
+NOW GENERATE - Remember: ONE LINE of JSON, NO newlines inside strings:"""

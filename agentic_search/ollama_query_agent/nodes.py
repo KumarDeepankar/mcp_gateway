@@ -712,20 +712,28 @@ async def gather_and_synthesize_node(state: SearchAgentState) -> SearchAgentStat
             conversation_history=state.get("conversation_history", [])
         )
 
-        system_prompt = """You are a JSON-only response agent. Output ONLY valid JSON, no other text.
+        system_prompt = """You are a strict JSON-only output agent. Generate ONLY valid JSON with no additional text.
 
-FORMAT REQUIREMENTS:
-- Start with { and end with }
-- Two fields: "reasoning" (string) and "response_content" (string with HTML)
-- NO newlines inside string values
-- NO comments
-- NO trailing commas
-- Escape all quotes inside strings
+CRITICAL RULES:
+1. Output ONE LINE of JSON - NO newlines/line breaks inside string values
+2. Start with { and end with }
+3. Two fields ONLY: "reasoning" and "response_content"
+4. NO control characters (tabs, returns, line feeds)
+5. NO markdown formatting, NO code blocks
+6. HTML must be on ONE continuous line inside "response_content"
+7. Use double quotes for JSON, single quotes for HTML attributes
+8. NO trailing commas, NO comments
 
-Example:
-{"reasoning": "Analysis of data", "response_content": "<div><h3>Title</h3><p>Content here.</p></div>"}
+CORRECT:
+{"reasoning":"Brief analysis","response_content":"<div><h3>Title</h3><p>Content with <strong>emphasis</strong>.</p></div>"}
 
-Output valid JSON now:"""
+WRONG - has newlines:
+{
+  "reasoning": "...",
+  "response_content": "<div>...</div>"
+}
+
+Output ONE LINE of valid JSON now:"""
 
         response = await ollama_client.generate_response(prompt, system_prompt)
         state["thinking_steps"].append("Received synthesis response")
