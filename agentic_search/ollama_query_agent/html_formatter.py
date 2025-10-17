@@ -33,16 +33,18 @@ def format_task_results_to_html(
     query_escaped = html_lib.escape(user_query)
     html_parts = []
 
-    # Header section
-    html_parts.append("<div>")
-    html_parts.append(f"<h3>Search Results: {query_escaped}</h3>")
+    # Container with professional styling
+    html_parts.append("<div style='font-family:system-ui,-apple-system,sans-serif;line-height:1.6;color:#2c3e50;'>")
 
-    # Summary section
+    # Main title with blue bottom border
+    html_parts.append(f"<h3 style='color:#1a1a1a;font-size:1.5em;font-weight:600;margin:0 0 20px 0;padding-bottom:12px;border-bottom:3px solid #3498db;'>Search Results: {query_escaped}</h3>")
+
+    # Summary section with proper paragraph styling
     total_items = _count_total_items(task_results)
-    html_parts.append("<p>")
-    html_parts.append(f"<strong>Data Summary:</strong> Processed {len(task_results)} data source(s)")
+    html_parts.append("<p style='margin:0 0 16px 0;line-height:1.7;color:#34495e;'>")
+    html_parts.append(f"<strong style='color:#2c3e50;font-weight:600;'>Data Summary:</strong> Processed <strong style='color:#2c3e50;'>{len(task_results)}</strong> data source(s)")
     if total_items > 0:
-        html_parts.append(f" and found {total_items} total items")
+        html_parts.append(f" and found <strong style='color:#2c3e50;'>{total_items}</strong> total items")
     html_parts.append(f". Tools used: {', '.join(sources_used)}")
     html_parts.append("</p>")
 
@@ -54,9 +56,9 @@ def format_task_results_to_html(
         description = html_lib.escape(task_result.get("description", ""))
         result_data = task_result.get("result", {})
 
-        html_parts.append(f"<h4>{idx}. {tool_name}</h4>")
+        html_parts.append(f"<h4 style='color:#2c3e50;font-size:1.2em;font-weight:600;margin:24px 0 12px 0;'>{idx}. {tool_name}</h4>")
         if description:
-            html_parts.append(f"<p><em>{description}</em></p>")
+            html_parts.append(f"<p style='margin:0 0 16px 0;line-height:1.7;color:#34495e;'><em>{description}</em></p>")
 
         # Format based on result type
         if isinstance(result_data, dict):
@@ -121,9 +123,9 @@ def _format_events(result_data: Dict[str, Any], use_rich_formatting: bool) -> Li
 
     if use_rich_formatting and len(events) > 0:
         # Create a table for rich formatting
-        html.append("<table style='width:100%; border-collapse:collapse; margin:10px 0;'>")
+        html.append("<table style='width:100%;border-collapse:collapse;margin:20px 0;border:1px solid #e1e8ed;'>")
         html.append("<thead>")
-        html.append("<tr style='border-bottom:2px solid #333; background:#f5f5f5;'>")
+        html.append("<tr style='background:#f8f9fa;'>")
 
         # Determine columns based on first event
         first_event = events[0] if isinstance(events[0], dict) else {}
@@ -141,7 +143,7 @@ def _format_events(result_data: Dict[str, Any], use_rich_formatting: bool) -> Li
             headers = ["Event", "Details"]
 
         for header in headers:
-            html.append(f"<th style='padding:10px; text-align:left;'>{header}</th>")
+            html.append(f"<th style='padding:12px;text-align:left;font-weight:600;color:#2c3e50;border-bottom:2px solid #3498db;'>{header}</th>")
         html.append("</tr>")
         html.append("</thead>")
         html.append("<tbody>")
@@ -149,32 +151,32 @@ def _format_events(result_data: Dict[str, Any], use_rich_formatting: bool) -> Li
         # Add rows (limit to 15 for readability)
         for event in events[:15]:
             if isinstance(event, dict):
-                html.append("<tr style='border-bottom:1px solid #ddd;'>")
+                html.append("<tr style='border-bottom:1px solid #e1e8ed;'>")
 
                 # Event name/title
                 if "Event" in headers or "Details" in headers:
                     title = html_lib.escape(str(event.get("title", event.get("name", "Untitled"))))
-                    html.append(f"<td style='padding:10px;'><strong>{title}</strong></td>")
+                    html.append(f"<td style='padding:12px;color:#34495e;'><strong style='color:#2c3e50;'>{title}</strong></td>")
 
                 # Location
                 if "Location" in headers:
                     location = html_lib.escape(str(event.get("location", event.get("country", "N/A"))))
-                    html.append(f"<td style='padding:10px;'>{location}</td>")
+                    html.append(f"<td style='padding:12px;color:#34495e;'>{location}</td>")
 
                 # Date
                 if "Date" in headers:
                     date = html_lib.escape(str(event.get("date", event.get("year", "N/A"))))
-                    html.append(f"<td style='padding:10px;'>{date}</td>")
+                    html.append(f"<td style='padding:12px;color:#34495e;'>{date}</td>")
 
                 # Attendance
                 if "Attendance" in headers:
                     attendance = html_lib.escape(str(event.get("attendance", event.get("attendees", "N/A"))))
-                    html.append(f"<td style='padding:10px;'>{attendance}</td>")
+                    html.append(f"<td style='padding:12px;color:#34495e;'><strong style='color:#2c3e50;'>{attendance}</strong></td>")
 
                 # Details fallback
                 if headers == ["Event", "Details"]:
                     details = ", ".join([f"{k}: {v}" for k, v in list(event.items())[1:3] if k not in ["title", "name"]])
-                    html.append(f"<td style='padding:10px;'>{html_lib.escape(details[:100])}</td>")
+                    html.append(f"<td style='padding:12px;color:#34495e;'>{html_lib.escape(details[:100])}</td>")
 
                 html.append("</tr>")
 
@@ -360,13 +362,4 @@ def _format_generic_value(result_data: Any) -> List[str]:
 def generate_no_results_html(user_query: str) -> str:
     """Generate HTML for no results found"""
     query = html_lib.escape(user_query)
-    return f"""<div>
-    <h3>No Results Found</h3>
-    <p>No data was found for your query: <strong>{query}</strong></p>
-    <p>Try:</p>
-    <ul>
-        <li>Rephrasing your query</li>
-        <li>Using different search terms</li>
-        <li>Selecting different tools</li>
-    </ul>
-</div>"""
+    return f"""<div style='font-family:system-ui,-apple-system,sans-serif;line-height:1.6;color:#2c3e50;'><h3 style='color:#1a1a1a;font-size:1.5em;font-weight:600;margin:0 0 20px 0;padding-bottom:12px;border-bottom:3px solid #3498db;'>No Results Found</h3><p style='margin:0 0 16px 0;line-height:1.7;color:#34495e;'>No data was found for your query: <strong style='color:#2c3e50;font-weight:600;'>{query}</strong></p><h4 style='color:#2c3e50;font-size:1.2em;font-weight:600;margin:24px 0 12px 0;'>Suggestions</h4><ul style='margin:12px 0;padding-left:24px;line-height:1.8;'><li style='margin:8px 0;color:#34495e;'>Rephrase your query with different keywords</li><li style='margin:8px 0;color:#34495e;'>Use broader or more specific search terms</li><li style='margin:8px 0;color:#34495e;'>Try selecting different tools from the sidebar</li><li style='margin:8px 0;color:#34495e;'>Check if the tools have access to the data you're looking for</li></ul></div>"""

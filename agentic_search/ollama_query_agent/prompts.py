@@ -93,28 +93,41 @@ def create_multi_task_planning_prompt(
 </planning_instructions>
 
 <examples>
-Query: "Find technology events in Denmark from 2022"
-Analysis: Specific query with clear filters (tech, Denmark, 2022). Need events + context.
+Query: "Find SOP-2847 and related incidents"
+Analysis: Specific SOP ID search. Need SOP document + incidents linked to this SOP.
 Plan:
 {{
-  "reasoning": "Use year filter + country filter for precision, then get stats for context",
+  "reasoning": "Search for specific SOP ID and find incidents that reference or are related to this SOP",
   "tasks": [
-    {{"task_number": 1, "tool_name": "filter_events_by_year", "tool_arguments": {{"year": 2022, "query": "technology", "size": 15}}, "description": "Get tech events from 2022"}},
-    {{"task_number": 2, "tool_name": "filter_events_by_country", "tool_arguments": {{"country": "Denmark", "query": "technology", "size": 15}}, "description": "Verify with country filter"}},
-    {{"task_number": 3, "tool_name": "get_events_stats_by_year", "tool_arguments": {{"country": "Denmark"}}, "description": "Get yearly stats for context"}}
+    {{"task_number": 1, "tool_name": "search_documents", "tool_arguments": {{"query": "SOP-2847", "size": 10}}, "description": "Search for SOP-2847 document"}},
+    {{"task_number": 2, "tool_name": "search_incidents", "tool_arguments": {{"query": "SOP-2847", "size": 15}}, "description": "Find incidents referencing SOP-2847"}},
+    {{"task_number": 3, "tool_name": "get_related_documents", "tool_arguments": {{"doc_id": "SOP-2847", "size": 10}}, "description": "Get related SOPs and procedures"}}
   ]
 }}
 
-Query: "Compare renewable energy events between Denmark and Dominica"
-Analysis: Comparative query needs data from both countries + size metrics.
+Query: "What are the common causes of database connection timeout incidents?"
+Analysis: Cause analysis query. Need incidents with this cause + aggregated statistics.
 Plan:
 {{
-  "reasoning": "Parallel data collection per country + attendance stats for comparison",
+  "reasoning": "Search for database timeout incidents and aggregate causes to identify patterns",
   "tasks": [
-    {{"task_number": 1, "tool_name": "filter_events_by_country", "tool_arguments": {{"country": "Denmark", "query": "renewable energy", "size": 20}}, "description": "Denmark renewable events"}},
-    {{"task_number": 2, "tool_name": "filter_events_by_country", "tool_arguments": {{"country": "Dominica", "query": "renewable energy", "size": 20}}, "description": "Dominica renewable events"}},
-    {{"task_number": 3, "tool_name": "get_event_attendance_stats", "tool_arguments": {{"country": "Denmark"}}, "description": "Denmark attendance stats"}},
-    {{"task_number": 4, "tool_name": "get_event_attendance_stats", "tool_arguments": {{"country": "Dominica"}}, "description": "Dominica attendance stats"}}
+    {{"task_number": 1, "tool_name": "search_incidents", "tool_arguments": {{"query": "database connection timeout", "size": 25}}, "description": "Search database timeout incidents"}},
+    {{"task_number": 2, "tool_name": "filter_incidents_by_cause", "tool_arguments": {{"cause": "connection timeout", "category": "database", "size": 20}}, "description": "Filter by timeout cause"}},
+    {{"task_number": 3, "tool_name": "aggregate_incident_causes", "tool_arguments": {{"category": "database", "limit": 10}}, "description": "Get top incident causes"}},
+    {{"task_number": 4, "tool_name": "get_incident_statistics", "tool_arguments": {{"query": "connection timeout"}}, "description": "Get timeout incident statistics"}}
+  ]
+}}
+
+Query: "Show all incidents caused by memory leaks in the last 30 days"
+Analysis: Cause-based search with time constraint. Need recent incidents + trend data.
+Plan:
+{{
+  "reasoning": "Filter incidents by memory leak cause and recent timeframe, include trend analysis",
+  "tasks": [
+    {{"task_number": 1, "tool_name": "search_incidents", "tool_arguments": {{"query": "memory leak", "size": 30}}, "description": "Search memory leak incidents"}},
+    {{"task_number": 2, "tool_name": "filter_incidents_by_cause", "tool_arguments": {{"cause": "memory leak", "size": 25}}, "description": "Filter by memory leak cause"}},
+    {{"task_number": 3, "tool_name": "filter_incidents_by_date", "tool_arguments": {{"days": 30, "query": "memory leak", "size": 25}}, "description": "Get incidents from last 30 days"}},
+    {{"task_number": 4, "tool_name": "get_incident_trends", "tool_arguments": {{"cause": "memory leak", "period": "30d"}}, "description": "Get trend data for memory leaks"}}
   ]
 }}
 </examples>
@@ -192,11 +205,14 @@ STEP 3 - SYNTHESIS STRATEGY:
 - Choose appropriate visualizations (tables for comparisons, lists for items, paragraphs for explanation)
 
 STEP 4 - CONTENT CREATION:
-- Write a compelling opening that directly addresses the query
-- Develop 3-5 main sections with clear headings
+- Write a compelling opening paragraph (2-3 sentences) that directly addresses the query
+- Develop 3-5 main sections with clear h4 headings
+- Use BULLET LISTS liberally to break down facts, statistics, and findings
+- Keep each paragraph to 2-3 sentences maximum - break longer content into multiple paragraphs
 - Use specific numbers and facts from the data (never make up information)
 - Add context and interpretation where helpful
-- Include a brief summary or key takeaway if appropriate
+- Include highlight boxes for key insights or summary statements
+- Emphasize important numbers and terms with <strong> tags
 
 STEP 5 - HTML FORMATTING:
 - Structure content with h3 (main title), h4 (section headings), p (paragraphs), ul/li (lists), table (data comparisons)
@@ -206,31 +222,80 @@ STEP 5 - HTML FORMATTING:
 </reasoning_process>
 
 <content_requirements>
-✓ DO: Extract and synthesize information into narrative form
+✓ DO: Extract and synthesize information into narrative form with professional styling
 ✓ DO: Include specific numbers, names, dates, locations from the data
-✓ DO: Create clear sections with descriptive headings (h3, h4)
+✓ DO: Create clear sections with descriptive headings (h3 for main title, h4 for sections)
+✓ DO: Use bullet lists liberally to break down information into digestible points
+✓ DO: Keep paragraphs SHORT (2-3 sentences maximum) for readability
+✓ DO: Add section headings frequently (every 2-3 paragraphs)
 ✓ DO: Use tables to compare multiple items or show structured data
-✓ DO: Write 300-800 words across multiple sections
+✓ DO: Add highlight boxes for key insights or summaries
+✓ DO: Write 300-800 words across multiple well-structured sections
 ✓ DO: Provide insights and interpretation, not just facts
 ✓ DO: Answer the user's question directly and completely
+✓ DO: Use professional color scheme (blues, grays) and proper spacing
 
 ✗ DON'T: Copy the source data structure (task_number, tool_name, result objects)
 ✗ DON'T: Use technical field names from tools in your response
 ✗ DON'T: Leave the data uninterpreted - always add context
 ✗ DON'T: Make up information not present in the source data
 ✗ DON'T: Use vague language - be specific with numbers and facts
-✗ DON'T: Create overly long paragraphs - break into digestible sections
+✗ DON'T: Create long paragraphs - break into multiple short paragraphs
+✗ DON'T: Write walls of text - use bullet lists to improve scannability
+✗ DON'T: Forget styling - always apply the professional CSS styles provided
 </content_requirements>
 
-<html_guidelines>
-• Main title: <h3>Title</h3>
-• Section headings: <h4>Section Name</h4>
-• Paragraphs: <p>Content with <strong>emphasis</strong> on key points.</p>
-• Bullet lists: <ul><li>Item one</li><li>Item two</li></ul>
-• Tables: <table style='width:100%;border-collapse:collapse;margin:15px 0;'><tr><th style='border-bottom:2px solid #333;background:#f5f5f5;padding:8px;text-align:left;'>Header</th></tr><tr><td style='padding:8px;border-bottom:1px solid #ddd;'>Data</td></tr></table>
+<html_styling_guidelines>
+Structure your response with professional, readable styling:
+
+CONTAINER:
+<div style='font-family:system-ui,-apple-system,sans-serif;line-height:1.6;color:#2c3e50;max-width:100%;'>
+
+MAIN TITLE (use for overall topic):
+<h3 style='color:#1a1a1a;font-size:1.5em;font-weight:600;margin:0 0 20px 0;padding-bottom:12px;border-bottom:3px solid #3498db;'>Title</h3>
+
+SECTION HEADINGS (use frequently to break content):
+<h4 style='color:#2c3e50;font-size:1.2em;font-weight:600;margin:24px 0 12px 0;'>Section Name</h4>
+
+PARAGRAPHS (keep short, 2-3 sentences max):
+<p style='margin:0 0 16px 0;line-height:1.7;color:#34495e;'>Content with <strong style='color:#2c3e50;font-weight:600;'>emphasis</strong> on key numbers and terms.</p>
+
+BULLET LISTS (use liberally for facts, features, items):
+<ul style='margin:12px 0;padding-left:24px;line-height:1.8;'>
+<li style='margin:8px 0;color:#34495e;'>Item with <strong style='color:#2c3e50;'>emphasis</strong></li>
+<li style='margin:8px 0;color:#34495e;'>Another item</li>
+</ul>
+
+NUMBERED LISTS (for steps or rankings):
+<ol style='margin:12px 0;padding-left:24px;line-height:1.8;'>
+<li style='margin:8px 0;color:#34495e;'>First item</li>
+<li style='margin:8px 0;color:#34495e;'>Second item</li>
+</ol>
+
+HIGHLIGHT BOXES (for key insights or summaries):
+<div style='background:#f8f9fa;border-left:4px solid #3498db;padding:16px;margin:20px 0;border-radius:4px;'>
+<p style='margin:0;color:#2c3e50;font-weight:500;'>Key insight or summary statement</p>
+</div>
+
+TABLES (for comparisons and structured data):
+<table style='width:100%;border-collapse:collapse;margin:20px 0;border:1px solid #e1e8ed;'>
+<thead><tr style='background:#f8f9fa;'>
+<th style='padding:12px;text-align:left;font-weight:600;color:#2c3e50;border-bottom:2px solid #3498db;'>Header</th>
+</tr></thead>
+<tbody><tr style='border-bottom:1px solid #e1e8ed;'>
+<td style='padding:12px;color:#34495e;'>Data</td>
+</tr></tbody>
+</table>
+
+IMPORTANT NOTES:
 • Use single quotes for ALL HTML attributes
 • Keep ALL HTML on ONE LINE (critical for JSON validity)
-</html_guidelines>
+• Use bullet lists frequently (break down information)
+• Keep paragraphs short (2-3 sentences)
+• Add section headings every 2-3 paragraphs
+• Use highlight boxes for key takeaways
+• Emphasize numbers and important terms with <strong>
+</html_styling_guidelines>
 
 <output_format>
 CRITICAL: Output EXACTLY ONE LINE of JSON with this structure:
@@ -247,21 +312,21 @@ Rules:
 </output_format>
 
 <examples>
-Example 1 - Simple Query:
+Example 1 - Simple Query with Professional Styling:
 Query: "How many events in Denmark?"
-Good: {{"reasoning":"Counted total events from search results","response_content":"<div><h3>Denmark Events Overview</h3><p>Based on the search results, Denmark hosted <strong>47 events</strong> across various categories. The events were distributed across major cities, with Copenhagen accounting for <strong>31 events</strong> (66%) and Aarhus hosting <strong>16 events</strong> (34%).</p><h4>Key Statistics</h4><ul><li>Total events: 47</li><li>Average attendance: 180 participants</li><li>Most common category: Technology (18 events)</li></ul></div>"}}
+Good: {{"reasoning":"Analyzed event data and created structured overview with key metrics","response_content":"<div style='font-family:system-ui,-apple-system,sans-serif;line-height:1.6;color:#2c3e50;'><h3 style='color:#1a1a1a;font-size:1.5em;font-weight:600;margin:0 0 20px 0;padding-bottom:12px;border-bottom:3px solid #3498db;'>Denmark Events Overview</h3><p style='margin:0 0 16px 0;line-height:1.7;color:#34495e;'>Based on comprehensive search results, Denmark hosted a total of <strong style='color:#2c3e50;font-weight:600;'>47 events</strong> across various categories and locations.</p><h4 style='color:#2c3e50;font-size:1.2em;font-weight:600;margin:24px 0 12px 0;'>Geographic Distribution</h4><ul style='margin:12px 0;padding-left:24px;line-height:1.8;'><li style='margin:8px 0;color:#34495e;'><strong style='color:#2c3e50;'>Copenhagen:</strong> 31 events (66% of total)</li><li style='margin:8px 0;color:#34495e;'><strong style='color:#2c3e50;'>Aarhus:</strong> 16 events (34% of total)</li></ul><h4 style='color:#2c3e50;font-size:1.2em;font-weight:600;margin:24px 0 12px 0;'>Key Statistics</h4><ul style='margin:12px 0;padding-left:24px;line-height:1.8;'><li style='margin:8px 0;color:#34495e;'>Average attendance: <strong style='color:#2c3e50;'>180 participants</strong></li><li style='margin:8px 0;color:#34495e;'>Most common category: <strong style='color:#2c3e50;'>Technology (18 events)</strong></li><li style='margin:8px 0;color:#34495e;'>Second most common: <strong style='color:#2c3e50;'>Business (12 events)</strong></li></ul><div style='background:#f8f9fa;border-left:4px solid #3498db;padding:16px;margin:20px 0;border-radius:4px;'><p style='margin:0;color:#2c3e50;font-weight:500;'>Denmark demonstrates a strong concentration of events in major urban centers, with Copenhagen serving as the primary hub for large-scale gatherings.</p></div></div>"}}
 
-Example 2 - Comparative Query:
+Example 2 - Comparative Query with Tables:
 Query: "Compare AI conferences between USA and UK"
-Good: {{"reasoning":"Analyzed conference data from both countries focusing on size, topics, and attendance","response_content":"<div><h3>USA vs UK AI Conference Comparison</h3><p>Both countries demonstrated strong AI conference activity, with distinct characteristics in each market.</p><h4>Volume and Scale</h4><p>The <strong>USA hosted 89 AI conferences</strong> compared to the UK's <strong>34 conferences</strong>. However, UK conferences showed higher average attendance at <strong>520 participants</strong> versus <strong>380 in the USA</strong>, suggesting more consolidated events.</p><h4>Regional Distribution</h4><table style='width:100%;border-collapse:collapse;margin:15px 0;'><tr><th style='border-bottom:2px solid #333;background:#f5f5f5;padding:8px;text-align:left;'>Metric</th><th style='border-bottom:2px solid #333;background:#f5f5f5;padding:8px;text-align:left;'>USA</th><th style='border-bottom:2px solid #333;background:#f5f5f5;padding:8px;text-align:left;'>UK</th></tr><tr><td style='padding:8px;border-bottom:1px solid #ddd;'>Total Conferences</td><td style='padding:8px;border-bottom:1px solid #ddd;'>89</td><td style='padding:8px;border-bottom:1px solid #ddd;'>34</td></tr><tr><td style='padding:8px;border-bottom:1px solid #ddd;'>Avg Attendance</td><td style='padding:8px;border-bottom:1px solid #ddd;'>380</td><td style='padding:8px;border-bottom:1px solid #ddd;'>520</td></tr><tr><td style='padding:8px;border-bottom:1px solid #ddd;'>Top Location</td><td style='padding:8px;border-bottom:1px solid #ddd;'>San Francisco (23)</td><td style='padding:8px;border-bottom:1px solid #ddd;'>London (28)</td></tr></table><h4>Topic Focus</h4><p>USA conferences emphasized <strong>applied AI and enterprise applications</strong>, while UK events focused more on <strong>AI ethics and policy frameworks</strong>.</p></div>"}}
+Good: {{"reasoning":"Compared conference metrics across both countries with focus on volume, attendance, and thematic differences","response_content":"<div style='font-family:system-ui,-apple-system,sans-serif;line-height:1.6;color:#2c3e50;'><h3 style='color:#1a1a1a;font-size:1.5em;font-weight:600;margin:0 0 20px 0;padding-bottom:12px;border-bottom:3px solid #3498db;'>USA vs UK AI Conference Comparison</h3><p style='margin:0 0 16px 0;line-height:1.7;color:#34495e;'>Both countries demonstrate strong AI conference activity, with distinct characteristics in scale and focus areas.</p><h4 style='color:#2c3e50;font-size:1.2em;font-weight:600;margin:24px 0 12px 0;'>Volume and Scale Analysis</h4><p style='margin:0 0 16px 0;line-height:1.7;color:#34495e;'>The United States shows significantly higher conference volume, while the UK demonstrates more consolidated event structures.</p><table style='width:100%;border-collapse:collapse;margin:20px 0;border:1px solid #e1e8ed;'><thead><tr style='background:#f8f9fa;'><th style='padding:12px;text-align:left;font-weight:600;color:#2c3e50;border-bottom:2px solid #3498db;'>Metric</th><th style='padding:12px;text-align:left;font-weight:600;color:#2c3e50;border-bottom:2px solid #3498db;'>USA</th><th style='padding:12px;text-align:left;font-weight:600;color:#2c3e50;border-bottom:2px solid #3498db;'>UK</th></tr></thead><tbody><tr style='border-bottom:1px solid #e1e8ed;'><td style='padding:12px;color:#34495e;'>Total Conferences</td><td style='padding:12px;color:#34495e;'><strong style='color:#2c3e50;'>89</strong></td><td style='padding:12px;color:#34495e;'><strong style='color:#2c3e50;'>34</strong></td></tr><tr style='border-bottom:1px solid #e1e8ed;'><td style='padding:12px;color:#34495e;'>Avg Attendance</td><td style='padding:12px;color:#34495e;'><strong style='color:#2c3e50;'>380</strong></td><td style='padding:12px;color:#34495e;'><strong style='color:#2c3e50;'>520</strong></td></tr><tr style='border-bottom:1px solid #e1e8ed;'><td style='padding:12px;color:#34495e;'>Top Location</td><td style='padding:12px;color:#34495e;'>San Francisco (23)</td><td style='padding:12px;color:#34495e;'>London (28)</td></tr></tbody></table><h4 style='color:#2c3e50;font-size:1.2em;font-weight:600;margin:24px 0 12px 0;'>Thematic Focus Areas</h4><ul style='margin:12px 0;padding-left:24px;line-height:1.8;'><li style='margin:8px 0;color:#34495e;'><strong style='color:#2c3e50;'>USA:</strong> Applied AI, enterprise applications, machine learning infrastructure</li><li style='margin:8px 0;color:#34495e;'><strong style='color:#2c3e50;'>UK:</strong> AI ethics, policy frameworks, responsible AI development</li></ul><div style='background:#f8f9fa;border-left:4px solid #3498db;padding:16px;margin:20px 0;border-radius:4px;'><p style='margin:0;color:#2c3e50;font-weight:500;'>While the USA leads in conference quantity, UK events attract higher average attendance, suggesting more centralized, high-impact gatherings focused on strategic AI policy discussions.</p></div></div>"}}
 
 Example 3 - BAD (echoing data structure):
 {{"task_results":[{{"task_number":1,"tool_name":"search_events","result":{{"events":[{{"id":"evt_123","name":"Conference"}}]}}}}]}}
 ❌ This is WRONG - it's just copying the source data structure!
 
-Example 4 - BAD (incomplete synthesis):
+Example 4 - BAD (no styling, vague content):
 {{"reasoning":"Found events","response_content":"<div><p>There are events in the database.</p></div>"}}
-❌ This is WRONG - too vague, no specific numbers or insights!
+❌ This is WRONG - no styling, too vague, no structure, no specific numbers or insights!
 </examples>
 
 <final_instruction>

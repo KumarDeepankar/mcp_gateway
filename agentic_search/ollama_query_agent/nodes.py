@@ -712,34 +712,35 @@ async def gather_and_synthesize_node(state: SearchAgentState) -> SearchAgentStat
             conversation_history=state.get("conversation_history", [])
         )
 
-        system_prompt = """<role>You are an expert data synthesis agent specializing in transforming multi-source data into clear, narrative HTML responses. You excel at extracting insights and presenting them in well-structured, user-friendly format.</role>
+        system_prompt = """<role>You are an expert data synthesis agent specializing in transforming multi-source data into professionally styled, readable HTML responses. You excel at extracting insights and presenting them with clear structure, bullet points, and formal styling.</role>
 
 <critical_instructions>
 1. SYNTHESIZE data into narrative form - DO NOT echo raw data structures (task_number, tool_name, result objects)
 2. EXTRACT key facts (numbers, names, dates, locations) and create a cohesive story
-3. STRUCTURE response with clear sections: h3 (title), h4 (sections), p (paragraphs), ul/li (lists), table (comparisons)
-4. WRITE 300-800 words with specific details from the data
-5. OUTPUT exactly ONE LINE of JSON with TWO fields: "reasoning" and "response_content"
-6. HTML must be on ONE CONTINUOUS LINE (no newlines/control characters inside string values)
-7. Use double quotes for JSON structure, single quotes for HTML attributes
-8. NO markdown, NO code blocks, NO trailing commas
+3. USE BULLET LISTS liberally to break down information into digestible points
+4. KEEP PARAGRAPHS SHORT (2-3 sentences maximum) for readability
+5. ADD SECTION HEADINGS frequently: h3 (main title with blue bottom border), h4 (section headings)
+6. APPLY PROFESSIONAL STYLING: Use color scheme (blues: #3498db, grays: #2c3e50, #34495e), proper spacing, and clean typography
+7. INCLUDE highlight boxes for key insights (light gray background with blue left border)
+8. WRITE 300-800 words across multiple well-structured sections
+9. OUTPUT exactly ONE LINE of JSON with TWO fields: "reasoning" and "response_content"
+10. HTML must be on ONE CONTINUOUS LINE (no newlines/control characters inside string values)
+11. Use double quotes for JSON structure, single quotes for HTML attributes
+12. NO markdown, NO code blocks, NO trailing commas
 </critical_instructions>
 
-<output_format>
-CORRECT - Narrative synthesis:
-{{"reasoning":"Analyzed 3 sources covering Denmark events","response_content":"<div><h3>Denmark Events Analysis</h3><p>Denmark hosted <strong>45 events</strong> in 2022, with Copenhagen accounting for <strong>30 events</strong> (67%).</p><h4>Key Insights</h4><ul><li>Technology sector led with 18 events</li><li>Average attendance: 250 participants</li></ul></div>"}}
+<styling_example>
+CORRECT - Professional styling with structure:
+{{"reasoning":"Analyzed 3 sources covering Denmark events with structured breakdown","response_content":"<div style='font-family:system-ui,-apple-system,sans-serif;line-height:1.6;color:#2c3e50;'><h3 style='color:#1a1a1a;font-size:1.5em;font-weight:600;margin:0 0 20px 0;padding-bottom:12px;border-bottom:3px solid #3498db;'>Denmark Events Analysis</h3><p style='margin:0 0 16px 0;line-height:1.7;color:#34495e;'>Denmark hosted <strong style='color:#2c3e50;font-weight:600;'>45 events</strong> in 2022, demonstrating strong activity across multiple sectors.</p><h4 style='color:#2c3e50;font-size:1.2em;font-weight:600;margin:24px 0 12px 0;'>Key Insights</h4><ul style='margin:12px 0;padding-left:24px;line-height:1.8;'><li style='margin:8px 0;color:#34495e;'>Technology sector led with <strong style='color:#2c3e50;'>18 events</strong></li><li style='margin:8px 0;color:#34495e;'>Average attendance: <strong style='color:#2c3e50;'>250 participants</strong></li><li style='margin:8px 0;color:#34495e;'>Copenhagen hosted <strong style='color:#2c3e50;'>67%</strong> of all events</li></ul><div style='background:#f8f9fa;border-left:4px solid #3498db;padding:16px;margin:20px 0;border-radius:4px;'><p style='margin:0;color:#2c3e50;font-weight:500;'>Denmark shows concentrated activity in urban centers with strong technology sector engagement.</p></div></div>"}}
 
 WRONG - Echoing data structure:
 {{"task_results":[{{"task_number":1,"tool_name":"search","result":{{}}}}]}}
 
-WRONG - Has newlines in JSON:
-{{
-  "reasoning": "...",
-  "response_content": "..."
-}}
-</output_format>
+WRONG - Poor styling, no structure:
+{{"reasoning":"Found events","response_content":"<div><p>There are 45 events in Denmark in 2022.</p></div>"}}
+</styling_example>
 
-Generate ONE LINE of JSON with synthesized narrative now:"""
+Generate ONE LINE of JSON with professionally styled, well-structured narrative now:"""
 
         response = await ollama_client.generate_response(prompt, system_prompt)
         state["thinking_steps"].append("Received synthesis response")
