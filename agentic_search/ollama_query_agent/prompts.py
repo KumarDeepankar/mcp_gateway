@@ -29,7 +29,7 @@ def create_multi_task_planning_prompt(
 
     context = format_conversation_context(conversation_history, max_turns=2) if conversation_history else ""
 
-    # Simplified tool categorization
+    # Enhanced tool categorization with descriptions
     tools = {
         "search": [t for t in enabled_tools if "search" in t.get("name", "").lower()],
         "filter": [t for t in enabled_tools if "filter" in t.get("name", "").lower() or "count" in t.get("name", "")],
@@ -41,14 +41,56 @@ def create_multi_task_planning_prompt(
         if not any(t in category for category in tools.values()):
             tools["other"].append(t)
 
-    tools_summary = {k: [{"name": t["name"], "params": list(t.get("inputSchema", {}).get("properties", {}).keys())}
-                         for t in v[:3]] for k, v in tools.items() if v}
+    # Enhanced tool summary with descriptions and parameter details
+    tools_summary = {}
+    for k, v in tools.items():
+        if not v:
+            continue
+        tools_summary[k] = []
+        for t in v[:5]:  # Show up to 5 tools per category
+            input_schema = t.get("inputSchema", {})
+            properties = input_schema.get("properties", {})
+            required = input_schema.get("required", [])
 
-    return f"""You are a query planning agent. Decompose user queries into parallel executable tasks.
+            # Build parameter details with types and descriptions
+            param_details = {}
+            for param_name, param_info in properties.items():
+                param_details[param_name] = {
+                    "type": param_info.get("type", "any"),
+                    "required": param_name in required
+                }
+                if "description" in param_info:
+                    param_details[param_name]["description"] = param_info["description"][:100]  # Limit length
 
-<tools>{json.dumps(tools_summary, indent=2)}</tools>
+            tool_summary = {
+                "name": t["name"],
+                "description": t.get("description", "No description available")[:200],  # Include tool description!
+                "parameters": param_details
+            }
+            tools_summary[k].append(tool_summary)
 
-<query>{user_query}</query>{context}
+    return f"""<role>You are an expert query planning agent. Your specialty is analyzing user queries and selecting the most appropriate tools to gather comprehensive information.</role>
+
+<task>Decompose the user's query into 2-5 parallel executable tasks using the available tools below. Choose tools based on their descriptions and the user's intent.</task>
+
+<available_tools>
+{json.dumps(tools_summary, indent=2)}
+</available_tools>
+
+<user_query>{user_query}</user_query>{context}
+
+<planning_instructions>
+1. READ the user query carefully and identify what information they need
+2. REVIEW the available tools and their descriptions to understand what each tool does
+3. SELECT the most relevant tools that will provide the information needed
+4. CREATE 2-5 parallel tasks (tasks that can run simultaneously, no dependencies)
+5. For each task, specify:
+   - task_number: Sequential number (1, 2, 3, ...)
+   - tool_name: EXACT name from available tools
+   - tool_arguments: Dictionary with required and optional parameters (check "required": true)
+   - description: Brief explanation of what this task will accomplish
+6. WRITE reasoning that explains your tool selection strategy
+</planning_instructions>
 
 <examples>
 Query: "Find technology events in Denmark from 2022"
@@ -77,15 +119,17 @@ Plan:
 }}
 </examples>
 
-<rules>
-- Output ONLY valid JSON (no markdown)
-- 2-5 parallel tasks (no dependencies)
-- Use exact tool names from available tools
-- Each task: task_number, tool_name, tool_arguments, description
-- Include reasoning that explains your strategy
-</rules>
+<output_rules>
+- Output ONLY valid JSON (no markdown, no code blocks)
+- Start with {{ and end with }}
+- Two fields: "reasoning" (string) and "tasks" (array)
+- 2-5 parallel tasks (no dependencies between tasks)
+- Use EXACT tool names from available tools
+- Include all required parameters for each tool
+- Each task needs: task_number, tool_name, tool_arguments, description
+</output_rules>
 
-Generate JSON plan:"""
+Generate JSON plan now:"""
 
 
 def create_information_synthesis_prompt(
