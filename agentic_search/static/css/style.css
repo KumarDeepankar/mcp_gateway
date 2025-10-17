@@ -644,6 +644,11 @@ body.theme-minimal {
     word-wrap: break-word;
 }
 
+/* Full width for assistant messages */
+.message.assistant .message-content {
+    max-width: 98%;
+}
+
 .message.user .message-content {
     background: linear-gradient(135deg, var(--primary-color) 0%, #4b5563 100%);
     color: white;
@@ -1210,13 +1215,13 @@ body.theme-minimal {
         0 4px 16px rgba(0, 0, 0, 0.04),
         inset 0 1px 0 rgba(255, 255, 255, 0.7);
     animation: fadeInUp 0.2s ease;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-weight: 500;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     transition: all 0.3s ease;
     overflow: visible;
-    max-width: 100%;
+    max-width: 88%;
 }
 
 /* Add extra bottom margin when expanded to prevent overlap */
@@ -1242,7 +1247,7 @@ body.theme-minimal {
 }
 
 .chain-title {
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 600;
     color: var(--accent-color);
     margin-bottom: 10px;
@@ -1255,6 +1260,9 @@ body.theme-minimal {
     text-transform: uppercase;
     letter-spacing: 0.8px;
     opacity: 0.85;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 .chain-collapse-btn {
@@ -1290,16 +1298,16 @@ body.theme-minimal {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 5px 8px;
-    margin: 1px 0;
+    padding: 3px 6px;
+    margin: 0;
     background: transparent;
     border-radius: 6px;
     border: none;
     transition: all 0.3s ease;
     opacity: 0.85;
     transform: translateX(-5px);
-    font-size: 11px;
-    line-height: 1.4;
+    font-size: 10px;
+    line-height: 1.3;
     position: relative;
     z-index: 2;
     max-width: 100%;
@@ -1335,16 +1343,16 @@ body.theme-minimal {
 
 .progress-text {
     flex: 1;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 500;
     color: #64748b;
     font-style: normal;
     line-height: 1.3;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
-    letter-spacing: 0.01em;
-    -webkit-font-smoothing: subpixel-antialiased;
-    -moz-osx-font-smoothing: auto;
-    text-rendering: geometricPrecision;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: 0.02em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     word-wrap: break-word;
     overflow-wrap: break-word;
     word-break: break-word;
@@ -1463,8 +1471,8 @@ body.theme-minimal {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 8px;
-    margin: 2px 0;
+    padding: 4px 6px;
+    margin: 0;
     position: relative;
     z-index: 2;
     background: transparent;
@@ -1473,7 +1481,7 @@ body.theme-minimal {
     transition: all 0.2s ease;
     opacity: 0.85;
     transform: translateX(-5px);
-    font-size: 11px;
+    font-size: 10px;
     max-width: 100%;
     overflow: hidden;
 }
@@ -1510,14 +1518,14 @@ body.theme-minimal {
 
 .step-name {
     flex: 1;
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 500;
     color: #64748b;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Helvetica Neue", Arial, sans-serif;
-    letter-spacing: 0.01em;
-    -webkit-font-smoothing: subpixel-antialiased;
-    -moz-osx-font-smoothing: auto;
-    text-rendering: geometricPrecision;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: 0.02em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     line-height: 1.3;
     word-wrap: break-word;
     overflow-wrap: break-word;
@@ -1579,6 +1587,7 @@ body.theme-minimal {
 
 /* Enhanced Message Styling - Glassmorphism */
 .message.assistant .message-content {
+    max-width: 98%;
     background: rgba(255, 255, 255, 0.6);
     backdrop-filter: blur(12px) saturate(150%);
     -webkit-backdrop-filter: blur(12px) saturate(150%);
@@ -1592,7 +1601,7 @@ body.theme-minimal {
         inset 0 1px 0 rgba(255, 255, 255, 0.8);
     padding: 14px 18px;
     line-height: 1.7;
-    font-size: 15px;
+    font-size: 13px;
 }
 
 /* Followup Button Styles - Light & Clean */
