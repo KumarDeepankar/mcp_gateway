@@ -23,6 +23,8 @@ from fastapi.staticfiles import StaticFiles
 
 from .services import discovery_service, connection_manager
 from .mcp_storage import mcp_storage_manager
+from .sse_session_manager import sse_session_manager
+from .backend_sse_manager import backend_sse_manager
 from .middleware import RateLimitMiddleware, AuthenticationMiddleware
 from .constants import PROTOCOL_VERSION, SERVER_INFO
 from .mcp_models import MCPToolboxGateway
@@ -37,7 +39,8 @@ from .routers import (
     audit_router,
     mcp_router,
     management_router,
-    config_router
+    config_router,
+    sse_router
 )
 
 # Configure logging per MCP 2025-06-18 specification
@@ -64,10 +67,18 @@ async def lifespan(app: FastAPI):
     # Start health monitoring
     await discovery_service.start_health_monitoring()
     logger.info("Connection health monitoring started")
+    # Start SSE session manager
+    await sse_session_manager.start()
+    logger.info("SSE session manager started")
     yield
     logger.info("Tools Gateway shutting down...")
+    # Stop SSE session manager
+    await sse_session_manager.stop()
     # Stop health monitoring
     await discovery_service.stop_health_monitoring()
+    # Close all backend SSE connections
+    await backend_sse_manager.close_all()
+    logger.info("Backend SSE connections closed")
     # Cleanly close the connection manager's session
     await connection_manager.close_session()
 
@@ -158,6 +169,9 @@ app.include_router(audit_router)
 
 # MCP Protocol
 app.include_router(mcp_router)
+
+# SSE Transport for Claude Desktop/Cursor
+app.include_router(sse_router)
 
 # Management
 app.include_router(management_router)

@@ -22,18 +22,32 @@ def get_current_user(request):
     Extract and validate user from JWT token in request.
     Returns None if no token or invalid token.
 
+    Supports two authentication methods:
+    1. Authorization header: "Authorization: Bearer <token>"
+    2. Query parameter: "?token=<token>"
+
     Args:
         request: FastAPI Request object
 
     Returns:
         User object if authenticated, None otherwise
     """
-    # Try Authorization header
-    auth_header = request.headers.get("Authorization")
+    token = None
 
+    # Try Authorization header first (standard method)
+    auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         token = auth_header[7:]  # Remove "Bearer " prefix
+        logger.debug("Found JWT token in Authorization header")
 
+    # Fallback to query parameter (for clients that don't support custom headers)
+    if not token:
+        token = request.query_params.get("token")
+        if token:
+            logger.debug("Found JWT token in query parameter")
+
+    # Validate token if found
+    if token:
         try:
             # Validate JWT token
             payload = jwt_manager.verify_token(token)
@@ -46,6 +60,7 @@ def get_current_user(request):
 
                     if user_data and user_data.get('enabled', True):
                         # Convert to User object
+                        logger.info(f"User authenticated via {'header' if auth_header else 'query param'}: {email}")
                         return User(
                             user_id=user_data['user_id'],
                             email=user_data['email'],

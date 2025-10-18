@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 # No hardcoded server imports - fully user-driven
 from .mcp_storage import mcp_storage_manager
 from .config import config_manager
+from .backend_sse_manager import backend_sse_manager
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +106,11 @@ class ConnectionManager:
         """
         Forwards a request to a backend MCP server and streams the SSE response.
         Enhanced with proper MCP 2025-06-18 specification compliance.
+
+        Note: server_url should include the full endpoint path (e.g., http://localhost:8001/mcp or http://localhost:8002/sse)
         """
         session = await self._get_session()
-        mcp_endpoint = f"{server_url}/mcp"
+        mcp_endpoint = server_url  # Use full URL including endpoint path
         # Headers per 2025-06-18 specification
         headers = {
             'Accept': 'application/json, text/event-stream',
@@ -201,6 +204,99 @@ class ConnectionManager:
             yield f"id: {event_id}\n"
             yield f"data: {json.dumps(error_payload)}\n\n"
 
+    async def call_tool(self, server_url: str, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Call a tool on a backend server, routing to either SSE or HTTP POST based on server type.
+
+        Args:
+            server_url: Full server URL (e.g., http://localhost:8002/sse or http://localhost:8001/mcp)
+            tool_name: Name of the tool to call
+            arguments: Tool arguments
+
+        Returns:
+            Tool execution result
+        """
+        # Check if this is an SSE endpoint
+        is_sse = server_url.endswith('/sse')
+
+        if is_sse:
+            # Extract server_id from URL for SSE manager
+            # Format: http://localhost:8002/sse -> server_id would be mapped in discovery
+            # For now, use the URL as the server_id
+            server_id = server_url
+
+            # Check if connected via SSE
+            if not backend_sse_manager.is_connected(server_id):
+                # Attempt to connect
+                success = await backend_sse_manager.connect_server(server_id, server_url)
+                if not success:
+                    raise Exception(f"Failed to connect to SSE backend: {server_url}")
+
+            # Send tool call via SSE
+            message = {
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments
+                },
+                "id": str(uuid.uuid4())
+            }
+
+            try:
+                response = await backend_sse_manager.send_message(server_id, message)
+
+                # Extract result from response
+                if "result" in response:
+                    return response["result"]
+                elif "error" in response:
+                    raise Exception(f"Tool execution error: {response['error']}")
+                else:
+                    raise Exception(f"Unexpected response format: {response}")
+
+            except Exception as e:
+                logger.error(f"SSE tool call failed for {tool_name} on {server_url}: {e}")
+                raise
+
+        else:
+            # Traditional HTTP POST approach
+            session = await self._get_session()
+            mcp_endpoint = server_url
+
+            headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'MCP-Protocol-Version': '2025-06-18'
+            }
+
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments
+                },
+                "id": str(uuid.uuid4())
+            }
+
+            try:
+                async with session.post(mcp_endpoint, json=payload, headers=headers, timeout=30) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        if "result" in data:
+                            return data["result"]
+                        elif "error" in data:
+                            raise Exception(f"Tool execution error: {data['error']}")
+                        else:
+                            raise Exception(f"Unexpected response format: {data}")
+                    else:
+                        error_text = await response.text()
+                        raise Exception(f"HTTP {response.status}: {error_text}")
+
+            except Exception as e:
+                logger.error(f"HTTP tool call failed for {tool_name} on {server_url}: {e}")
+                raise
+
     async def close_session(self):
         async with self._lock:
             if self._session and not self._session.closed:
@@ -289,41 +385,67 @@ class DiscoveryService:
                     health.mark_failure("Health check failed")
 
     async def _check_server_health(self, server_url: str) -> bool:
-        """Check health of a single server"""
-        session = await self.connection_manager._get_session()
-        mcp_endpoint = f"{server_url}/mcp"
+        """Check health of a single server using full endpoint URL"""
+        # Check if this is an SSE endpoint
+        is_sse = server_url.endswith('/sse')
 
-        headers = {
-            'Accept': 'application/json, text/event-stream',
-            'Content-Type': 'application/json',
-            'MCP-Protocol-Version': '2025-06-18'
-        }
+        if is_sse:
+            # For SSE backends, check if already connected via backend_sse_manager
+            server_id = server_url
+            if backend_sse_manager.is_connected(server_id):
+                # Already connected - health check passes
+                logger.debug(f"Health check passed for {server_url} (SSE connected)")
+                return True
+            else:
+                # Try to establish connection
+                try:
+                    success = await backend_sse_manager.connect_server(server_id, server_url)
+                    if success:
+                        logger.debug(f"Health check passed for {server_url} (SSE reconnected)")
+                        return True
+                    else:
+                        logger.warning(f"Health check failed for {server_url}: SSE connection failed")
+                        return False
+                except Exception as e:
+                    logger.warning(f"Health check failed for {server_url}: {e}")
+                    return False
+        else:
+            # For HTTP POST backends, use the traditional approach
+            session = await self.connection_manager._get_session()
+            mcp_endpoint = server_url
 
-        # Simple ping with initialize
-        init_payload = {
-            "jsonrpc": "2.0",
-            "method": "initialize",
-            "id": "health-check",
-            "params": {
-                "protocolVersion": "2025-06-18",
-                "clientInfo": {
-                    "name": "tools-gateway-health-check",
-                    "version": "1.0.0"
+            headers = {
+                'Accept': 'application/json, text/event-stream',
+                'Content-Type': 'application/json',
+                'MCP-Protocol-Version': '2025-06-18'
+            }
+
+            # Simple ping with initialize
+            init_payload = {
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "id": "health-check",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "tools-gateway-health-check",
+                        "version": "1.0.0"
+                    }
                 }
             }
-        }
 
-        try:
-            async with session.post(mcp_endpoint, json=init_payload, headers=headers, timeout=5) as response:
-                if response.status == 200:
-                    logger.debug(f"Health check passed for {server_url}")
-                    return True
-                else:
-                    logger.warning(f"Health check failed for {server_url}: status {response.status}")
-                    return False
-        except Exception as e:
-            logger.warning(f"Health check failed for {server_url}: {e}")
-            return False
+            try:
+                async with session.post(mcp_endpoint, json=init_payload, headers=headers, timeout=5) as response:
+                    if response.status == 200:
+                        logger.debug(f"Health check passed for {server_url}")
+                        return True
+                    else:
+                        logger.warning(f"Health check failed for {server_url}: status {response.status}")
+                        return False
+            except Exception as e:
+                logger.warning(f"Health check failed for {server_url}: {e}")
+                return False
 
     def get_server_health_status(self, server_url: Optional[str] = None) -> Dict[str, Any]:
         """Get health status for all servers or a specific server"""
@@ -384,13 +506,105 @@ class DiscoveryService:
         Fetches the tool list from a single MCP server.
         Enhanced with MCP 2025-06-18 specification compliance including proper session initialization.
         Updates health status tracking.
+        Supports both traditional HTTP POST and SSE-based backend servers.
+
+        Note: server_url should include the full endpoint path (e.g., http://localhost:8001/mcp or http://localhost:8002/sse)
         """
         # Initialize health status if not exists
         if server_url not in self.server_health:
             self.server_health[server_url] = ServerHealthStatus(server_url)
 
+        # Check if this is an SSE endpoint
+        is_sse = server_url.endswith('/sse')
+
+        if is_sse:
+            # Use BackendSSEManager for SSE-based servers
+            return await self._fetch_tools_from_sse_server(server_url)
+        else:
+            # Use traditional HTTP POST for regular MCP servers
+            return await self._fetch_tools_from_http_server(server_url)
+
+    async def _fetch_tools_from_sse_server(self, server_url: str) -> tuple[str, Optional[List[Dict]]]:
+        """
+        Fetches tools from an SSE-based backend server (like FastMCP).
+        """
+        server_id = server_url  # Use URL as server_id
+
+        try:
+            # Check if already connected
+            if not backend_sse_manager.is_connected(server_id):
+                logger.info(f"Connecting to SSE backend: {server_url}")
+                success = await backend_sse_manager.connect_server(server_id, server_url)
+                if not success:
+                    logger.error(f"Failed to connect to SSE backend: {server_url}")
+                    self.server_health[server_url].mark_failure("SSE connection failed")
+                    return server_url, None
+
+            # Send initialize message
+            init_message = {
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "mcp-toolbox-gateway",
+                        "version": "1.0.0"
+                    }
+                },
+                "id": "discovery-init"
+            }
+
+            init_response = await backend_sse_manager.send_message(server_id, init_message)
+            logger.debug(f"SSE backend initialized: {server_url}")
+
+            # Send initialized notification (required by MCP protocol)
+            initialized_message = {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized"
+            }
+            # Send notification (no response expected)
+            await backend_sse_manager.send_notification(server_id, initialized_message)
+            logger.debug(f"Sent initialized notification to {server_url}")
+
+            # Request tools list
+            tools_message = {
+                "jsonrpc": "2.0",
+                "method": "tools/list",
+                "params": {},
+                "id": "discovery-list"
+            }
+
+            tools_response = await backend_sse_manager.send_message(server_id, tools_message)
+
+            # Extract tools from response
+            if "result" in tools_response:
+                tools = tools_response["result"].get("tools", [])
+                logger.info(f"Successfully fetched {len(tools)} tools from {server_url} (SSE)")
+                self.server_health[server_url].mark_success()
+                return server_url, tools
+            elif "error" in tools_response:
+                error_msg = tools_response["error"].get("message", "Unknown error")
+                logger.error(f"Error fetching tools from {server_url}: {error_msg}")
+                self.server_health[server_url].mark_failure(error_msg)
+                return server_url, None
+            else:
+                logger.warning(f"Unexpected response format from {server_url}")
+                self.server_health[server_url].mark_failure("Unexpected response format")
+                return server_url, None
+
+        except Exception as e:
+            logger.error(f"Error fetching tools from SSE backend {server_url}: {e}")
+            self.server_health[server_url].mark_failure(str(e))
+            return server_url, None
+
+    async def _fetch_tools_from_http_server(self, server_url: str) -> tuple[str, Optional[List[Dict]]]:
+        """
+        Fetches tools from a traditional HTTP POST MCP server.
+        Original implementation for non-SSE servers.
+        """
         session = await self.connection_manager._get_session()
-        mcp_endpoint = f"{server_url}/mcp"
+        mcp_endpoint = server_url  # Use full URL including endpoint path
 
         # Headers per 2025-06-18 specification
         base_headers = {
@@ -407,6 +621,7 @@ class DiscoveryService:
                 "id": "discovery-init",
                 "params": {
                     "protocolVersion": "2025-06-18",
+                    "capabilities": {},
                     "clientInfo": {
                         "name": "mcp-toolbox-gateway",
                         "version": "1.0.0"

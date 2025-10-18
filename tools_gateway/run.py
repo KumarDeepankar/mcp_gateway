@@ -5,7 +5,13 @@ Run from parent directory: python -m tools_gateway.run
 Or directly: python run.py (from tools_gateway directory)
 """
 import sys
+import os
 from pathlib import Path
+
+# CRITICAL: Disable bytecode generation BEFORE any other imports
+# This prevents FastAPI 0.115+ middleware caching bug
+sys.dont_write_bytecode = True
+os.environ['PYTHONDONTWRITEBYTECODE'] = '1'
 
 # Add parent directory to Python path so we can import tools_gateway as a package
 parent_path = Path(__file__).parent.parent

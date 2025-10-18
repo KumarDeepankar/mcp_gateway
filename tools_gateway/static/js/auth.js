@@ -607,6 +607,107 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
+/**
+ * Show JWT Token Modal
+ */
+function showJWTTokenModal() {
+    const modal = document.getElementById('jwtTokenModal');
+    if (!modal) {
+        console.error('JWT Token modal not found');
+        return;
+    }
+
+    // Get the JWT token from storage
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+        showNotification('Error', 'No JWT token found. Please log in again.', 'error');
+        return;
+    }
+
+    // Get ngrok URL from the ngrok log or use default
+    const ngrokUrl = 'https://ce666863018f.ngrok-free.app';
+
+    // Populate the token textarea
+    document.getElementById('jwtTokenValue').value = token;
+
+    // Generate Claude Desktop configuration
+    const claudeConfig = {
+        "mcpServers": {
+            "toolbox-gateway": {
+                "url": `${ngrokUrl}/mcp?token=${token}`
+            }
+        }
+    };
+
+    // Populate the Claude config textarea
+    document.getElementById('claudeConfigValue').value = JSON.stringify(claudeConfig, null, 2);
+
+    // Show the modal
+    modal.style.display = 'flex';
+
+    // Close profile dropdown
+    const dropdown = document.getElementById('userProfileDropdown');
+    if (dropdown) dropdown.style.display = 'none';
+}
+
+/**
+ * Copy JWT Token to clipboard
+ */
+async function copyJWTToken() {
+    const tokenValue = document.getElementById('jwtTokenValue').value;
+    const copyBtn = document.getElementById('copyTokenBtn');
+
+    try {
+        await navigator.clipboard.writeText(tokenValue);
+
+        // Update button text temporarily
+        const originalHTML = copyBtn.innerHTML;
+        copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        copyBtn.style.background = '#10b981';
+        copyBtn.style.color = 'white';
+
+        setTimeout(() => {
+            copyBtn.innerHTML = originalHTML;
+            copyBtn.style.background = '';
+            copyBtn.style.color = '';
+        }, 2000);
+
+        showNotification('Success', 'JWT token copied to clipboard', 'success');
+    } catch (error) {
+        console.error('Failed to copy token:', error);
+        showNotification('Error', 'Failed to copy to clipboard', 'error');
+    }
+}
+
+/**
+ * Copy Claude Desktop config to clipboard
+ */
+async function copyClaudeConfig() {
+    const configValue = document.getElementById('claudeConfigValue').value;
+    const copyBtn = document.getElementById('copyConfigBtn');
+
+    try {
+        await navigator.clipboard.writeText(configValue);
+
+        // Update button text temporarily
+        const originalHTML = copyBtn.innerHTML;
+        copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+        copyBtn.style.background = '#10b981';
+        copyBtn.style.color = 'white';
+
+        setTimeout(() => {
+            copyBtn.innerHTML = originalHTML;
+            copyBtn.style.background = '';
+            copyBtn.style.color = '';
+        }, 2000);
+
+        showNotification('Success', 'Claude Desktop config copied to clipboard', 'success');
+    } catch (error) {
+        console.error('Failed to copy config:', error);
+        showNotification('Error', 'Failed to copy to clipboard', 'error');
+    }
+}
+
     // Export functions to global scope for onclick handlers
     window.showLoginModal = showLoginModal;
     window.handleLocalLogin = handleLocalLogin;
@@ -615,6 +716,9 @@ document.head.appendChild(style);
     window.handleLogout = handleLogout;
     window.changePassword = changePassword;
     window.submitPasswordChange = submitPasswordChange;
+    window.showJWTTokenModal = showJWTTokenModal;
+    window.copyJWTToken = copyJWTToken;
+    window.copyClaudeConfig = copyClaudeConfig;
 
     // Export authModule API
     window.authModule = {

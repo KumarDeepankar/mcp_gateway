@@ -199,8 +199,12 @@ class Database:
     CREATE INDEX IF NOT EXISTS idx_tool_oauth_provider ON tool_oauth_associations(oauth_provider_id);
     """
 
-    def __init__(self, db_path: str = "tools_gateway.db"):
+    def __init__(self, db_path: str = None):
         """Initialize database connection"""
+        if db_path is None:
+            # Use absolute path relative to this file's location
+            # This ensures consistent database location regardless of working directory
+            db_path = Path(__file__).parent / "tools_gateway.db"
         self.db_path = Path(db_path)
         self._local = threading.local()
         self._lock = threading.Lock()

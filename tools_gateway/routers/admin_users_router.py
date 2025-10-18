@@ -215,6 +215,59 @@ async def update_user_password(request: Request, user_id: str, request_data: Dic
     return JSONResponse(content={"success": True, "message": "Password updated successfully"})
 
 
+@router.post("/users/{user_id}/token")
+async def generate_user_token(request: Request, user_id: str):
+    """Generate JWT token for a user (Admin only)"""
+    from tools_gateway.auth import UserInfo
+
+    current_user = get_current_user(request)
+    if not current_user or not rbac_manager.has_permission(current_user.user_id, Permission.USER_MANAGE):
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    # Get the target user
+    target_user = rbac_manager.get_user(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if not target_user.enabled:
+        raise HTTPException(status_code=400, detail="Cannot generate token for disabled user")
+
+    # Create UserInfo object for JWT token generation
+    user_info = UserInfo(
+        sub=target_user.user_id,
+        email=target_user.email,
+        name=target_user.name or target_user.email,
+        provider=target_user.provider or "local"
+    )
+
+    # Generate JWT token for the target user
+    access_token = jwt_manager.create_access_token(user_info)
+
+    # Log the token generation
+    audit_logger.log_event(
+        AuditEventType.AUTH_TOKEN_ISSUED,
+        user_id=current_user.user_id,
+        user_email=current_user.email,
+        resource_type="user",
+        resource_id=user_id,
+        details={
+            "target_user_email": target_user.email,
+            "generated_by_admin": True
+        }
+    )
+
+    return JSONResponse(content={
+        "success": True,
+        "access_token": access_token,
+        "user": {
+            "user_id": target_user.user_id,
+            "email": target_user.email,
+            "name": target_user.name,
+            "roles": list(target_user.roles) if target_user.roles else []
+        }
+    })
+
+
 @router.delete("/users/{user_id}")
 async def delete_user(request: Request, user_id: str):
     """Delete user (Admin only)"""

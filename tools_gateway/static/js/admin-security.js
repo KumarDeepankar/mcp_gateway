@@ -780,6 +780,9 @@ function renderUsersTable(users) {
                             <button class="btn btn-sm btn-primary" onclick="showManageUserRolesModal('${u.user_id}', '${u.email.replace(/'/g, "\\'")}', ${JSON.stringify(u.roles).replace(/"/g, '&quot;')})">
                                 <i class="fas fa-user-cog"></i> Manage Roles
                             </button>
+                            <button class="btn btn-sm btn-success" onclick="showAdminGeneratedTokenModal('${u.user_id}', '${u.email.replace(/'/g, "\\'")}', '${u.name ? u.name.replace(/'/g, "\\'") : ''}')">
+                                <i class="fas fa-key"></i> Get Token
+                            </button>
                             ${u.role_ids && u.role_ids.includes('admin') ?
                                 '<button class="btn btn-sm btn-secondary" disabled title="Admin users cannot be deleted"><i class="fas fa-shield-alt"></i> Protected</button>' :
                                 `<button class="btn btn-sm btn-danger" onclick="deleteUser('${u.user_id}', '${u.email.replace(/'/g, "\\'")}')"><i class="fas fa-trash"></i> Delete</button>`
@@ -3071,3 +3074,79 @@ async function saveGroupMapping() {
         showNotification('Error saving mapping: ' + error.message, 'error');
     }
 }
+
+// =====================================================================
+// ADMIN TOKEN GENERATION
+// =====================================================================
+
+/**
+ * Show Admin Generated Token Modal
+ * Generates and displays a JWT token for a specific user (admin only)
+ */
+async function showAdminGeneratedTokenModal(userId, userEmail, userName) {
+    try {
+        // Show loading state
+        showNotification('Generating JWT token...', 'info');
+
+        // Call the admin endpoint to generate token
+        const response = await fetch(`/admin/users/${userId}/token`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            showNotification('Failed to generate token: ' + (error.detail || 'Unknown error'), 'error');
+            return;
+        }
+
+        const data = await response.json();
+        const token = data.access_token;
+        const user = data.user;
+
+        // Get ngrok URL from the log or use default
+        const ngrokUrl = 'https://ce666863018f.ngrok-free.app';
+
+        // Use the same JWT token modal from auth.js
+        const modal = document.getElementById('jwtTokenModal');
+        if (!modal) {
+            showNotification('JWT Token modal not found', 'error');
+            return;
+        }
+
+        // Update modal title to indicate admin generation
+        const modalTitle = modal.querySelector('.modal-title');
+        if (modalTitle) {
+            modalTitle.innerHTML = `<i class="fas fa-key"></i> JWT Token for ${userEmail}`;
+        }
+
+        // Populate the token textarea
+        document.getElementById('jwtTokenValue').value = token;
+
+        // Generate Claude Desktop configuration
+        const claudeConfig = {
+            "mcpServers": {
+                "toolbox-gateway": {
+                    "url": `${ngrokUrl}/mcp?token=${token}`
+                }
+            }
+        };
+
+        // Populate the Claude config textarea
+        document.getElementById('claudeConfigValue').value = JSON.stringify(claudeConfig, null, 2);
+
+        // Show the modal
+        modal.style.display = 'flex';
+
+        showNotification(`JWT token generated for ${userEmail}`, 'success');
+    } catch (error) {
+        console.error('Error generating admin token:', error);
+        showNotification('Error generating token: ' + error.message, 'error');
+    }
+}
+
+// Export to global scope
+window.showAdminGeneratedTokenModal = showAdminGeneratedTokenModal;

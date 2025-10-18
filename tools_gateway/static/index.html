@@ -1269,6 +1269,9 @@
         <button class="btn btn-outline btn-sm btn-block" onclick="changePassword()" style="margin-bottom: 0.5rem;">
             <i class="fas fa-key"></i> Change Password
         </button>
+        <button class="btn btn-primary btn-sm btn-block" onclick="showJWTTokenModal()" style="margin-bottom: 0.5rem;">
+            <i class="fas fa-code"></i> Get JWT Token
+        </button>
         <button class="btn btn-danger btn-sm btn-block" onclick="handleLogout()">
             <i class="fas fa-sign-out-alt"></i> Logout
         </button>
@@ -1357,6 +1360,101 @@
                 <button class="btn btn-outline" onclick="closeModal('changePasswordModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="submitPasswordChange(event)">
                     <i class="fas fa-save"></i> Update Password
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JWT Token Modal -->
+    <div id="jwtTokenModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-code"></i>
+                    Your JWT Token
+                </div>
+                <button class="modal-close" onclick="closeModal('jwtTokenModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>JWT Token for API Access & Claude Desktop</strong>
+                    <p>Use this token to authenticate API requests or configure Claude Desktop to access the gateway.</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">JWT Access Token</label>
+                    <div style="position: relative;">
+                        <textarea
+                            id="jwtTokenValue"
+                            class="form-control"
+                            rows="6"
+                            readonly
+                            style="font-family: monospace; font-size: 0.875rem; background-color: #f8f9fa; resize: none;"
+                        ></textarea>
+                        <button
+                            class="btn btn-sm btn-outline"
+                            onclick="copyJWTToken()"
+                            style="position: absolute; top: 8px; right: 8px;"
+                            id="copyTokenBtn"
+                        >
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                    <small class="form-text">Click the copy button to copy the token to your clipboard</small>
+                </div>
+
+                <div class="form-divider"></div>
+
+                <h4 class="form-section-title">
+                    <i class="fas fa-desktop"></i>
+                    Claude Desktop Configuration
+                </h4>
+
+                <div class="alert alert-success" style="margin-bottom: 15px;">
+                    <i class="fas fa-check-circle"></i>
+                    <strong>Quick Setup for Claude Desktop</strong>
+                    <p>Copy the configuration below and paste it into your Claude Desktop config file.</p>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Configuration File Location</label>
+                    <code id="claudeConfigPath" style="display: block; padding: 8px; background-color: #f8f9fa; border-radius: 4px; margin-bottom: 10px;">
+                        ~/Library/Application Support/Claude/claude_desktop_config.json
+                    </code>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Claude Desktop Config (JSON)</label>
+                    <div style="position: relative;">
+                        <textarea
+                            id="claudeConfigValue"
+                            class="form-control"
+                            rows="8"
+                            readonly
+                            style="font-family: monospace; font-size: 0.875rem; background-color: #f8f9fa; resize: none;"
+                        ></textarea>
+                        <button
+                            class="btn btn-sm btn-outline"
+                            onclick="copyClaudeConfig()"
+                            style="position: absolute; top: 8px; right: 8px;"
+                            id="copyConfigBtn"
+                        >
+                            <i class="fas fa-copy"></i> Copy
+                        </button>
+                    </div>
+                    <small class="form-text">This configuration connects Claude Desktop to the gateway with your token</small>
+                </div>
+
+                <div class="alert alert-warning" style="margin-top: 15px;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <strong>Security Note:</strong>
+                    <p style="margin: 5px 0 0 0;">Keep your JWT token secure. It provides full access to your account. Don't share it publicly.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('jwtTokenModal')">
+                    <i class="fas fa-check"></i> Done
                 </button>
             </div>
         </div>

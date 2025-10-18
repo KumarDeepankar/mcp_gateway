@@ -115,7 +115,13 @@ class MCPStorageManager:
                 return False
     
     async def register_server_from_url(self, server_url: str, description: str = "") -> Optional[MCPServerInfo]:
-        """Discover and register an MCP server from its URL."""
+        """
+        Discover and register an MCP server from its URL.
+
+        Args:
+            server_url: Full endpoint URL including path (e.g., http://localhost:8001/mcp or http://localhost:8002/sse)
+            description: Optional server description
+        """
         try:
             # Create SSL context that allows self-signed certificates for development
             ssl_context = ssl.create_default_context()
@@ -151,7 +157,7 @@ class MCPStorageManager:
                 capabilities = {}
                 
                 try:
-                    async with session.post(f"{server_url}/mcp", json=init_payload, headers=headers, timeout=10) as response:
+                    async with session.post(server_url, json=init_payload, headers=headers, timeout=10) as response:
                         if response.status == 200:
                             data = await response.json()
                             if "result" in data:
@@ -225,8 +231,10 @@ class MCPStorageManager:
         """Remove a server from storage."""
         async with self._lock:
             if server_id in self.servers:
+                # Remove from in-memory cache
                 del self.servers[server_id]
-                await self._save_to_disk()
+                # Delete from database
+                database.delete_mcp_server(server_id)
                 logger.info(f"Removed MCP server: {server_id}")
                 return True
             return False
@@ -242,77 +250,142 @@ class MCPStorageManager:
             return False
     
     async def test_server_connection(self, server_id: str) -> Dict[str, Any]:
-        """Test connection to an MCP server."""
+        """Test connection to an MCP server using full endpoint URL."""
         server_data = self.servers.get(server_id)
         if not server_data:
             return {"status": "error", "message": "Server not found"}
 
-        endpoint = server_data["url"]
+        endpoint = server_data["url"]  # This should already include the full path (e.g., /mcp or /sse)
         start_time = datetime.now()
 
-        try:
-            # Create SSL context that allows self-signed certificates for development
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+        # Check if this is an SSE endpoint
+        is_sse = endpoint.endswith('/sse')
 
-            # Create connector with SSL configuration
-            connector = aiohttp.TCPConnector(ssl=ssl_context)
+        if is_sse:
+            # For SSE backends, check if already connected via backend_sse_manager
+            from .backend_sse_manager import backend_sse_manager
 
-            async with aiohttp.ClientSession(connector=connector) as session:
-                # Test MCP initialization
-                headers = {
-                    'Accept': 'application/json, text/event-stream',
-                    'Content-Type': 'application/json',
-                    'MCP-Protocol-Version': '2025-06-18'
+            server_id = endpoint
+            if backend_sse_manager.is_connected(server_id):
+                # Already connected - health check passes
+                duration = (datetime.now() - start_time).total_seconds()
+                logger.debug(f"Test passed for {endpoint} (SSE connected)")
+
+                # Get server info from stored data
+                server_name = server_data.get("name", "Unknown")
+                capabilities = server_data.get("capabilities", {})
+
+                return {
+                    "status": "healthy",
+                    "response_time": duration,
+                    "endpoint": endpoint,
+                    "server_name": server_name,
+                    "protocol_version": "2024-11-05",  # FastMCP version
+                    "capabilities": capabilities,
+                    "connection_type": "SSE"
                 }
-                
-                init_payload = {
-                    "jsonrpc": "2.0",
-                    "method": "initialize",
-                    "params": {
-                        "protocolVersion": "2025-06-18",
-                        "clientInfo": {
-                            "name": "mcp-toolbox-gateway",
-                            "version": "1.0.0"
-                        }
-                    },
-                    "id": "health-check"
-                }
-                
-                async with session.post(f"{endpoint}/mcp", json=init_payload, headers=headers, timeout=10) as response:
+            else:
+                # Try to establish connection
+                try:
+                    success = await backend_sse_manager.connect_server(server_id, endpoint)
                     duration = (datetime.now() - start_time).total_seconds()
-                    
-                    if response.status == 200:
-                        data = await response.json()
-                        result = data.get("result", {})
-                        server_info = result.get("serverInfo", {})
-                        capabilities = result.get("capabilities", {})
-                        
+                    if success:
+                        logger.debug(f"Test passed for {endpoint} (SSE reconnected)")
+
+                        server_name = server_data.get("name", "Unknown")
+                        capabilities = server_data.get("capabilities", {})
+
                         return {
                             "status": "healthy",
                             "response_time": duration,
                             "endpoint": endpoint,
-                            "http_status": response.status,
-                            "server_name": server_info.get("name", "Unknown"),
-                            "protocol_version": result.get("protocolVersion", "Unknown"),
-                            "capabilities": capabilities
+                            "server_name": server_name,
+                            "protocol_version": "2024-11-05",
+                            "capabilities": capabilities,
+                            "connection_type": "SSE"
                         }
                     else:
+                        logger.warning(f"Test failed for {endpoint}: SSE connection failed")
                         return {
                             "status": "unhealthy",
                             "response_time": duration,
                             "endpoint": endpoint,
-                            "http_status": response.status
+                            "error": "SSE connection failed"
                         }
-        except Exception as e:
-            duration = (datetime.now() - start_time).total_seconds()
-            return {
-                "status": "error",
-                "response_time": duration,
-                "endpoint": endpoint,
-                "error": str(e)
-            }
+                except Exception as e:
+                    duration = (datetime.now() - start_time).total_seconds()
+                    logger.warning(f"Test failed for {endpoint}: {e}")
+                    return {
+                        "status": "error",
+                        "response_time": duration,
+                        "endpoint": endpoint,
+                        "error": str(e)
+                    }
+        else:
+            # For HTTP POST backends, use the traditional approach
+            try:
+                # Create SSL context that allows self-signed certificates for development
+                ssl_context = ssl.create_default_context()
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
+
+                # Create connector with SSL configuration
+                connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+                async with aiohttp.ClientSession(connector=connector) as session:
+                    # Test MCP initialization
+                    headers = {
+                        'Accept': 'application/json, text/event-stream',
+                        'Content-Type': 'application/json',
+                        'MCP-Protocol-Version': '2025-06-18'
+                    }
+
+                    init_payload = {
+                        "jsonrpc": "2.0",
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "clientInfo": {
+                                "name": "mcp-toolbox-gateway",
+                                "version": "1.0.0"
+                            }
+                        },
+                        "id": "health-check"
+                    }
+
+                    async with session.post(endpoint, json=init_payload, headers=headers, timeout=10) as response:
+                        duration = (datetime.now() - start_time).total_seconds()
+
+                        if response.status == 200:
+                            data = await response.json()
+                            result = data.get("result", {})
+                            server_info = result.get("serverInfo", {})
+                            capabilities = result.get("capabilities", {})
+
+                            return {
+                                "status": "healthy",
+                                "response_time": duration,
+                                "endpoint": endpoint,
+                                "http_status": response.status,
+                                "server_name": server_info.get("name", "Unknown"),
+                                "protocol_version": result.get("protocolVersion", "Unknown"),
+                                "capabilities": capabilities
+                            }
+                        else:
+                            return {
+                                "status": "unhealthy",
+                                "response_time": duration,
+                                "endpoint": endpoint,
+                                "http_status": response.status
+                            }
+            except Exception as e:
+                duration = (datetime.now() - start_time).total_seconds()
+                return {
+                    "status": "error",
+                    "response_time": duration,
+                    "endpoint": endpoint,
+                    "error": str(e)
+                }
     
     async def get_server_statistics(self) -> Dict[str, Any]:
         """Get statistics about registered servers."""

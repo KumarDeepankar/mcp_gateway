@@ -10,6 +10,7 @@ from .audit_router import router as audit_router
 from .mcp_router import router as mcp_router
 from .management_router import router as management_router
 from .config_router import router as config_router
+from .sse_router import router as sse_router
 
 __all__ = [
     "auth_router",
@@ -20,5 +21,6 @@ __all__ = [
     "audit_router",
     "mcp_router",
     "management_router",
-    "config_router"
+    "config_router",
+    "sse_router"
 ]

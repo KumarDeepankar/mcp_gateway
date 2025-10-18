@@ -299,11 +299,7 @@ async def mcp_post_endpoint(
                 })
             else:
                 # UNAUTHENTICATED ACCESS: Return all tools (or implement your policy)
-                # Option A: Allow anonymous access to all tools
-                logger.warning("tools/list: Anonymous access - returning all tools (consider requiring auth)")
-
-                # Option B: Require authentication (uncomment to enforce)
-                # raise HTTPException(status_code=401, detail="Authentication required")
+                logger.warning("tools/list: Anonymous access - returning all tools")
 
                 return JSONResponse(content={
                     "jsonrpc": "2.0",
@@ -421,17 +417,8 @@ async def mcp_post_endpoint(
                     }
                 )
             else:
-                # UNAUTHENTICATED ACCESS
-                # Option A: Allow anonymous tool execution (current behavior)
+                # UNAUTHENTICATED ACCESS: Allow anonymous tool execution
                 logger.warning(f"tools/call: Anonymous execution of tool {tool_name} (consider requiring auth)")
-
-                # Option B: Require authentication (uncomment to enforce)
-                # error_response = mcp_gateway.create_error_response(
-                #     request_id,
-                #     -32002,
-                #     "Authentication required to execute tools"
-                # )
-                # return JSONResponse(content=error_response, status_code=401)
 
             # === END AUTHORIZATION CHECK ===
 
@@ -528,44 +515,27 @@ async def mcp_post_endpoint(
                     )
             # === END AUTHENTICATION VALIDATION ===
 
-            # Forward the request and stream the response back
-            async def gateway_streaming_wrapper():
-                """Wrap the backend stream with gateway-specific events per specification."""
-                try:
-                    # Send gateway progress notification
-                    gateway_progress = {
-                        "jsonrpc": "2.0",
-                        "method": "notifications/gateway_progress",
-                        "params": {
-                            "message": f"Forwarding request to {server_url}",
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    }
-                    event_id = str(uuid.uuid4())
-                    yield f"id: {event_id}\n"
-                    yield f"data: {json.dumps(gateway_progress)}\n\n"
+            # Execute the tool call via connection manager (handles both SSE and HTTP backends)
+            try:
+                tool_arguments = params.get("arguments", {})
+                result = await connection_manager.call_tool(server_url, tool_name, tool_arguments)
 
-                    # Stream from backend server
-                    backend_stream = connection_manager.forward_request_streaming(server_url, request_data)
-                    async for chunk in backend_stream:
-                        yield chunk
-
-                except Exception as e:
-                    logger.error(f"Error in gateway streaming wrapper: {e}")
-                    error_event_id = str(uuid.uuid4())
-                    error_response = mcp_gateway.create_error_response(request_id, -32000, f"Gateway error: {str(e)}")
-                    yield f"id: {error_event_id}\n"
-                    yield f"data: {json.dumps(error_response)}\n\n"
-
-            return StreamingResponse(
-                gateway_streaming_wrapper(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "ngrok-skip-browser-warning": "true",
+                # Return tool execution result
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": result
                 }
-            )
+                return JSONResponse(content=response)
+
+            except Exception as e:
+                logger.error(f"Tool execution failed for {tool_name}: {e}")
+                error_response = mcp_gateway.create_error_response(
+                    request_id,
+                    -32000,
+                    f"Tool execution error: {str(e)}"
+                )
+                return JSONResponse(content=error_response, status_code=500)
 
         # MCP 2025-06-18 specification only supports standard methods
         # Server management is handled via separate management API
