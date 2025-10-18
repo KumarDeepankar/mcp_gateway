@@ -11,29 +11,29 @@ from typing import Any
 from typing_extensions import TypedDict
 import httpx
 
-# Python 3.11 compatibility patch for anyio type subscripting
-if sys.version_info < (3, 12):
-    import anyio
-
-    # Store the original function
-    _original_create_memory_object_stream = anyio.create_memory_object_stream
-
-
-    # Create a wrapper that allows subscripting but ignores the type parameter
-    class _MemoryObjectStreamWrapper:
-        def __init__(self, func):
-            self._func = func
-
-        def __call__(self, *args, **kwargs):
-            return self._func(*args, **kwargs)
-
-        def __getitem__(self, item):
-            # Return self to allow subscripting but ignore the type parameter
-            return self
-
-
-    # Apply the patch
-    anyio.create_memory_object_stream = _MemoryObjectStreamWrapper(_original_create_memory_object_stream)
+# # Python 3.11 compatibility patch for anyio type subscripting
+# if sys.version_info < (3, 12):
+#     import anyio
+#
+#     # Store the original function
+#     _original_create_memory_object_stream = anyio.create_memory_object_stream
+#
+#
+#     # Create a wrapper that allows subscripting but ignores the type parameter
+#     class _MemoryObjectStreamWrapper:
+#         def __init__(self, func):
+#             self._func = func
+#
+#         def __call__(self, *args, **kwargs):
+#             return self._func(*args, **kwargs)
+#
+#         def __getitem__(self, item):
+#             # Return self to allow subscripting but ignore the type parameter
+#             return self
+#
+#
+#     # Apply the patch
+#     anyio.create_memory_object_stream = _MemoryObjectStreamWrapper(_original_create_memory_object_stream)
 
 from mcp.server.fastmcp import FastMCP
 

@@ -335,26 +335,26 @@ async def mcp_post_endpoint(
                 else:
                     raise HTTPException(status_code=404, detail=f"Tool not found: {tool_name}")
 
+            # Fetch tool metadata ONCE for both authorization and authentication checks
+            # This prevents race conditions during concurrent requests
+            tool_metadata = None
+            try:
+                all_tools = await discovery_service.get_all_tools()
+                tool_metadata = next((t for t in all_tools if t.get('name') == tool_name), None)
+                if tool_metadata:
+                    logger.debug(f"Tool metadata found for {tool_name}: server_id={tool_metadata.get('_server_id')}")
+                else:
+                    logger.warning(f"Tool metadata not found for {tool_name} - will skip auth/authz checks")
+            except Exception as e:
+                logger.warning(f"Failed to fetch tool metadata for {tool_name}: {e} - will skip auth/authz checks")
+
             # === AUTHORIZATION CHECK ===
             # Get current user from JWT token
             user = get_current_user(request)
 
-            if user:
+            if user and tool_metadata:
                 # AUTHENTICATED: Check if user has permission to execute this tool
                 logger.info(f"tools/call: Checking authorization for user {user.email} to execute {tool_name}")
-
-                # Get tool metadata to find server_id
-                all_tools = await discovery_service.get_all_tools()
-                tool_metadata = next((t for t in all_tools if t.get('name') == tool_name), None)
-
-                if not tool_metadata:
-                    logger.error(f"Tool metadata not found for {tool_name}")
-                    error_response = mcp_gateway.create_error_response(
-                        request_id,
-                        -32601,
-                        f"Tool not found: {tool_name}"
-                    )
-                    return JSONResponse(content=error_response, status_code=404)
 
                 server_id = tool_metadata.get('_server_id')
 
@@ -423,10 +423,8 @@ async def mcp_post_endpoint(
             # === END AUTHORIZATION CHECK ===
 
             # === AUTHENTICATION VALIDATION ===
-            # Get tool metadata to check for required authentication
+            # Use the tool_metadata already fetched above (no need to call get_all_tools again)
             from ..database import database
-            all_tools = await discovery_service.get_all_tools()
-            tool_metadata = next((t for t in all_tools if t.get('name') == tool_name), None)
 
             logger.info(f"🔐 AUTH DEBUG: tool_name={tool_name}, tool_metadata found={tool_metadata is not None}")
 

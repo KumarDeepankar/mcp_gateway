@@ -76,6 +76,12 @@ class ConnectionManager:
     """Manages aiohttp session and forwards requests."""
     _session: Optional[aiohttp.ClientSession] = None
     _lock = asyncio.Lock()
+    # Session cache for backend MCP servers: {server_url: session_id}
+    _backend_sessions: Dict[str, str] = {}
+    _backend_session_lock = asyncio.Lock()
+    # Track sessions being created to avoid race conditions
+    _sessions_being_created: Dict[str, asyncio.Event] = {}
+    _creation_lock = asyncio.Lock()
 
     async def _get_session(self) -> aiohttp.ClientSession:
         async with self._lock:
@@ -101,6 +107,135 @@ class ConnectionManager:
                 )
                 logger.info("New aiohttp.ClientSession created with SSL verification disabled and increased buffer limits.")
         return self._session
+
+    async def _get_or_create_backend_session(self, server_url: str) -> str:
+        """
+        Get existing backend session or create a new one for the given server.
+        Returns the session ID.
+        Thread-safe with proper handling of concurrent requests.
+        """
+        # Quick check without lock - fast path for existing sessions
+        if server_url in self._backend_sessions:
+            session_id = self._backend_sessions[server_url]
+            logger.debug(f"Reusing existing session {session_id} for {server_url}")
+            return session_id
+
+        # Check if another coroutine is already creating this session
+        async with self._creation_lock:
+            # Double-check after acquiring lock
+            if server_url in self._backend_sessions:
+                session_id = self._backend_sessions[server_url]
+                logger.debug(f"Reusing session {session_id} for {server_url} (created by another request)")
+                return session_id
+
+            # Check if session creation is in progress
+            if server_url in self._sessions_being_created:
+                # Another coroutine is creating this session, wait for it
+                logger.debug(f"Waiting for session creation in progress for {server_url}")
+                creation_event = self._sessions_being_created[server_url]
+                # Release lock while waiting
+                pass
+            else:
+                # We will create the session
+                creation_event = asyncio.Event()
+                self._sessions_being_created[server_url] = creation_event
+
+        # If we're not the one creating, wait for the other coroutine to finish
+        if server_url in self._sessions_being_created:
+            event = self._sessions_being_created.get(server_url)
+            if event and not event.is_set():
+                logger.debug(f"Waiting for session creation event for {server_url}")
+                await event.wait()
+
+                # Session should now be available
+                if server_url in self._backend_sessions:
+                    session_id = self._backend_sessions[server_url]
+                    logger.debug(f"Using session {session_id} created by another request")
+                    return session_id
+                else:
+                    # Creation failed, we'll try ourselves
+                    logger.warning(f"Session creation failed for {server_url}, retrying")
+
+        # We are responsible for creating the session
+        try:
+            logger.info(f"Creating new backend session for {server_url}")
+            session = await self._get_session()
+
+            headers = {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                'MCP-Protocol-Version': '2025-06-18'
+            }
+
+            init_payload = {
+                "jsonrpc": "2.0",
+                "method": "initialize",
+                "id": str(uuid.uuid4()),
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {
+                        "name": "mcp-toolbox-gateway",
+                        "version": "1.0.0"
+                    }
+                }
+            }
+
+            async with session.post(server_url, json=init_payload, headers=headers, timeout=10) as response:
+                if response.status == 200:
+                    session_id = response.headers.get("Mcp-Session-Id")
+                    if session_id:
+                        # Store session ID
+                        async with self._backend_session_lock:
+                            self._backend_sessions[server_url] = session_id
+                        logger.info(f"Created backend session {session_id} for {server_url}")
+
+                        # Send initialized notification
+                        headers_with_session = headers.copy()
+                        headers_with_session['Mcp-Session-Id'] = session_id
+
+                        initialized_payload = {
+                            "jsonrpc": "2.0",
+                            "method": "notifications/initialized"
+                        }
+
+                        async with session.post(server_url, json=initialized_payload, headers=headers_with_session, timeout=5) as notif_response:
+                            logger.debug(f"Sent initialized notification to {server_url}: {notif_response.status}")
+
+                        # Signal that session creation is complete
+                        if server_url in self._sessions_being_created:
+                            self._sessions_being_created[server_url].set()
+                            async with self._creation_lock:
+                                del self._sessions_being_created[server_url]
+
+                        return session_id
+                    else:
+                        raise Exception("No session ID returned from server")
+                else:
+                    error_text = await response.text()
+                    raise Exception(f"HTTP {response.status}: {error_text}")
+
+        except Exception as e:
+            logger.error(f"Failed to create backend session for {server_url}: {e}")
+            # Signal failure and clean up
+            if server_url in self._sessions_being_created:
+                self._sessions_being_created[server_url].set()
+                async with self._creation_lock:
+                    del self._sessions_being_created[server_url]
+            raise
+
+    async def _clear_backend_session(self, server_url: str):
+        """Clear cached backend session for a server"""
+        async with self._backend_session_lock:
+            if server_url in self._backend_sessions:
+                del self._backend_sessions[server_url]
+                logger.debug(f"Cleared backend session cache for {server_url}")
+
+        # Also clear any pending creation events
+        async with self._creation_lock:
+            if server_url in self._sessions_being_created:
+                del self._sessions_being_created[server_url]
+                logger.debug(f"Cleared session creation event for {server_url}")
 
     async def forward_request_streaming(self, server_url: str, payload: Dict[str, Any]) -> AsyncGenerator[str, None]:
         """
@@ -259,14 +394,18 @@ class ConnectionManager:
                 raise
 
         else:
-            # Traditional HTTP POST approach
+            # Traditional HTTP POST approach with session management
             session = await self._get_session()
             mcp_endpoint = server_url
+
+            # Get or create backend session (no retry here to avoid clearing sessions)
+            session_id = await self._get_or_create_backend_session(server_url)
 
             headers = {
                 'Accept': 'application/json',
                 'Content-Type': 'application/json',
-                'MCP-Protocol-Version': '2025-06-18'
+                'MCP-Protocol-Version': '2025-06-18',
+                'Mcp-Session-Id': session_id  # Include session ID in request
             }
 
             payload = {
@@ -279,26 +418,81 @@ class ConnectionManager:
                 "id": str(uuid.uuid4())
             }
 
-            try:
-                async with session.post(mcp_endpoint, json=payload, headers=headers, timeout=30) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if "result" in data:
-                            return data["result"]
-                        elif "error" in data:
-                            raise Exception(f"Tool execution error: {data['error']}")
-                        else:
-                            raise Exception(f"Unexpected response format: {data}")
-                    else:
-                        error_text = await response.text()
-                        raise Exception(f"HTTP {response.status}: {error_text}")
+            max_retries = 2
+            for attempt in range(max_retries):
+                try:
+                    async with session.post(mcp_endpoint, json=payload, headers=headers, timeout=30) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            if "result" in data:
+                                return data["result"]
+                            elif "error" in data:
+                                raise Exception(f"Tool execution error: {data['error']}")
+                            else:
+                                raise Exception(f"Unexpected response format: {data}")
+                        elif response.status == 404:
+                            # Session expired or not found - clear and retry
+                            error_text = await response.text()
+                            logger.warning(f"Session not found (404) for {server_url} on attempt {attempt + 1}: {error_text}")
 
-            except Exception as e:
-                logger.error(f"HTTP tool call failed for {tool_name} on {server_url}: {e}")
-                raise
+                            if attempt < max_retries - 1:
+                                # Clear the session and retry with a new one
+                                await self._clear_backend_session(server_url)
+                                # Get a new session for retry
+                                session_id = await self._get_or_create_backend_session(server_url)
+                                headers['Mcp-Session-Id'] = session_id
+                                logger.info(f"Retrying with new session {session_id}")
+                                continue
+                            else:
+                                raise Exception(f"Session not found after {max_retries} attempts: {error_text}")
+                        else:
+                            error_text = await response.text()
+                            raise Exception(f"HTTP {response.status}: {error_text}")
+
+                except asyncio.TimeoutError as e:
+                    logger.warning(f"Timeout on tool call attempt {attempt + 1} for {tool_name}")
+                    if attempt < max_retries - 1:
+                        continue
+                    else:
+                        raise Exception(f"Timeout after {max_retries} attempts")
+                except Exception as e:
+                    # Only retry on session-related errors
+                    if "404" in str(e) or "Session" in str(e):
+                        if attempt < max_retries - 1:
+                            logger.info(f"Retrying tool call after error: {e}")
+                            continue
+                    # For other errors, fail immediately
+                    logger.error(f"HTTP tool call failed for {tool_name} on {server_url}: {e}")
+                    raise
 
     async def close_session(self):
+        """Close the HTTP session and clean up all backend sessions"""
         async with self._lock:
+            # Close all backend sessions properly
+            if self._backend_sessions:
+                session = await self._get_session()
+                for server_url, session_id in list(self._backend_sessions.items()):
+                    try:
+                        headers = {
+                            'MCP-Protocol-Version': '2025-06-18',
+                            'Mcp-Session-Id': session_id
+                        }
+                        async with session.delete(server_url, headers=headers, timeout=5) as response:
+                            logger.debug(f"Closed backend session {session_id} for {server_url}: {response.status}")
+                    except Exception as e:
+                        logger.debug(f"Failed to close backend session for {server_url}: {e}")
+
+                # Clear the cache
+                async with self._backend_session_lock:
+                    self._backend_sessions.clear()
+                    logger.info("All backend sessions cleared")
+
+            # Clear session creation tracking
+            async with self._creation_lock:
+                self._sessions_being_created.clear()
+                logger.debug("Cleared session creation tracking")
+
+            # Close the HTTP client session
             if self._session and not self._session.closed:
                 await self._session.close()
                 self._session = None
@@ -705,15 +899,12 @@ class DiscoveryService:
                     self.server_health[server_url].mark_failure(f"HTTP {response.status}")
                     return server_url, None
 
-            # Step 4: Clean up session (optional, but good practice)
+            # Step 4: Store session for reuse (do NOT delete it)
+            # The session will be reused for subsequent tool calls to avoid "tool not found" errors
             if session_id:
-                try:
-                    delete_headers = base_headers.copy()
-                    delete_headers['Mcp-Session-Id'] = session_id
-                    async with session.delete(mcp_endpoint, headers=delete_headers, timeout=5) as response:
-                        logger.debug(f"Session cleanup for {server_url}: {response.status}")
-                except Exception as e:
-                    logger.debug(f"Session cleanup failed for {server_url}: {e}")
+                async with self.connection_manager._backend_session_lock:
+                    self.connection_manager._backend_sessions[server_url] = session_id
+                    logger.debug(f"Stored session {session_id} for {server_url}")
 
         except asyncio.TimeoutError:
             logger.warning(f"Timeout while fetching tools from {server_url}")

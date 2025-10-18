@@ -447,6 +447,7 @@ Example:
 
 Output JSON now:"""
 
+        print("prompt: ", prompt)
         response = await ollama_client.generate_response(prompt, system_prompt)
         state["thinking_steps"].append("✅ Received planning response")
 
